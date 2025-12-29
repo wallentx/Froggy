@@ -38,7 +38,7 @@ class _AnimationScreenState extends State<AnimationScreen> {
     FilePair('fields_morning_sunny_bg.webp', 'fields_morning_sunny_frog.flr'),
     FilePair('fields_night_hazy_bg.webp', 'fields_night_cloudy_frog.flr'), // Missing background
     FilePair('fields_night_hazy_bg.webp', 'fields_night_hazy_frog.flr'),
-    // FilePair('fields_night_rainy_bg.webp', 'fields_night_rainy_frog.flr'), // Broken animation
+    FilePair('fields_night_rainy_bg.webp', 'fields_night_rainy_frog.flr'), // Broken animation
     FilePair('fields_night_snowy_bg.webp', 'fields_night_snowy_frog.flr'),
     FilePair('fields_night_sunny_bg.webp', 'fields_night_sunny_frog.flr'),
     FilePair('fields_sunset_cloudy_bg.webp', 'fields_sunset_cloudy_frog.flr'),
@@ -95,6 +95,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
       return FroggyAnimation(backgroundFile: pair.backgroundFile, animationFile: pair.animationFile);
     }).toList();
 
+    if(Uri.base.queryParameters['index'] != null){
+      currentIndex = int.parse(Uri.base.queryParameters['index']!);
+    }
+
     froggyAnimation = froggyAnimations[currentIndex];
   }
 
@@ -119,22 +123,6 @@ class _AnimationScreenState extends State<AnimationScreen> {
         children: <Widget>[
           froggyAnimation.getBackground(),
           froggyAnimation.getAnimation(),
-        ],
-      ),
-      floatingActionButton: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            onPressed: _previousAnimation,
-            tooltip: 'Previous Animation',
-            child: Icon(Icons.arrow_back),
-          ),
-          SizedBox(width: 10), // Space between buttons
-          FloatingActionButton(
-            onPressed: _nextAnimation,
-            tooltip: 'Next Animation',
-            child: Icon(Icons.arrow_forward),
-          ),
         ],
       ),
     );
