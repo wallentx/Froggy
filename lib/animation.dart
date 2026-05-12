@@ -5,29 +5,36 @@ import 'package:flare_flutter/flare.dart';
 
 class LoopingFlareController extends FlareController {
   final String animationName;
-  late ActorAnimation _animation;
+  ActorAnimation? _animation;
   double _time = 0.0;
+
+  // Notifies listeners when the Flare file finishes loading and duration is known.
+  final ValueNotifier<double?> durationNotifier = ValueNotifier<double?>(null);
 
   LoopingFlareController(this.animationName);
 
+  double? get duration => durationNotifier.value;
+
   @override
   void initialize(FlutterActorArtboard artboard) {
-    // Fetch the animation reference from the artboard
-    _animation = artboard.getAnimation(animationName)!;
+    _animation = artboard.getAnimation(animationName);
+    durationNotifier.value = _animation?.duration;
   }
 
   @override
   bool advance(FlutterActorArtboard artboard, double elapsed) {
     if (_animation == null) return false;
 
-    // Increment time and use modulo for a seamless loop
+    // Set duration here as a fallback in case initialize() didn't fire the
+    // notifier (e.g. the FlareActor reused an existing artboard on navigation).
+    if (durationNotifier.value == null) {
+      durationNotifier.value = _animation!.duration;
+    }
+
     _time += elapsed;
-    _time %= _animation.duration;
+    _time %= _animation!.duration;
+    _animation!.apply(_time, artboard, 1.0);
 
-    // Apply the current time to the artboard
-    _animation.apply(_time, artboard, 1.0);
-
-    // Return true to keep the animation advancing
     return true;
   }
 
@@ -51,12 +58,18 @@ class FroggyAnimation {
     'Hero-Action', 'Sub-Action 01', 'Sub-Action 02'
   ];
 
+  late LoopingFlareController _controller;
+
   FroggyAnimation({required this.backgroundFile, required this.animationFile}) {
     currentAnimation = animationNames[0];
+    _controller = LoopingFlareController(currentAnimation);
   }
 
+  LoopingFlareController get controller => _controller;
+
   Widget getAnimation() {
-    return Container(
+    return SizedBox(
+      key: ValueKey(animationFile),
       width: double.infinity,
       height: double.infinity,
       child: FlareActor(
@@ -64,7 +77,7 @@ class FroggyAnimation {
         alignment: Alignment.center,
         fit: BoxFit.cover,
         animation: currentAnimation,
-        controller: LoopingFlareController(currentAnimation),
+        controller: _controller,
         isPaused: false,
       ),
     );
@@ -83,5 +96,6 @@ class FroggyAnimation {
     int index = animationNames.indexOf(currentAnimation);
     index = (index + 1) % animationNames.length;
     currentAnimation = animationNames[index];
+    _controller = LoopingFlareController(currentAnimation);
   }
 }
