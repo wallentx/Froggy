@@ -27,7 +27,7 @@ class VideoExporter {
     required int index,
     required void Function(double progress, String status) onProgress,
   }) async {
-    final frameDir = Directory('${Directory.systemTemp.path}\\froggy_export_$index');
+    final frameDir = Directory('${Directory.systemTemp.path}/froggy_export_$index');
     await frameDir.create(recursive: true);
 
     try {
@@ -50,7 +50,7 @@ class VideoExporter {
           final (bytes, _, __) = await _captureFrame();
           if (bytes != null) {
             final file = File(
-                '${frameDir.path}\\frame_${frameIndex.toString().padLeft(4, '0')}.png');
+                '${frameDir.path}/frame_${frameIndex.toString().padLeft(4, '0')}.png');
             await file.writeAsBytes(bytes);
             frameIndex++;
 
@@ -66,14 +66,14 @@ class VideoExporter {
         return (null, 'No frames were captured.');
       }
 
-      final outputPath = '${_videosPath()}\\froggy_$index.mp4';
+      final outputPath = '${_videosPath()}/froggy_$index.mp4';
 
       onProgress(0.85, 'Encoding video…');
 
       final result = await Process.run('ffmpeg', [
         '-y',
         '-framerate', fps.toString(),
-        '-i', '${frameDir.path}\\frame_%04d.png',
+        '-i', '${frameDir.path}/frame_%04d.png',
         '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
         '-c:v', 'libx264',
         '-pix_fmt', 'yuv420p',
@@ -132,8 +132,8 @@ class VideoExporter {
   }
 
   static String _videosPath() {
-    final home = Platform.environment['USERPROFILE'] ?? '';
-    final dir = Directory('$home\\Videos');
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '';
+    final dir = Directory('$home/Videos');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir.path;
   }
