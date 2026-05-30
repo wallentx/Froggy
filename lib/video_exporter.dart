@@ -27,7 +27,8 @@ class VideoExporter {
     required int index,
     required void Function(double progress, String status) onProgress,
   }) async {
-    final frameDir = Directory('${Directory.systemTemp.path}/froggy_export_$index');
+    final frameDir =
+        Directory('${Directory.systemTemp.path}/froggy_export_$index');
     await frameDir.create(recursive: true);
 
     try {
@@ -47,7 +48,7 @@ class VideoExporter {
         if (elapsed >= nextCapture) {
           nextCapture += captureInterval;
 
-          final (bytes, _, __) = await _captureFrame();
+          final (bytes, _, _) = await _captureFrame();
           if (bytes != null) {
             final file = File(
                 '${frameDir.path}/frame_${frameIndex.toString().padLeft(4, '0')}.png');
@@ -72,13 +73,20 @@ class VideoExporter {
 
       final result = await Process.run('ffmpeg', [
         '-y',
-        '-framerate', fps.toString(),
-        '-i', '${frameDir.path}/frame_%04d.png',
-        '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2',
-        '-c:v', 'libx264',
-        '-pix_fmt', 'yuv420p',
-        '-crf', '18',
-        '-r', fps.toString(),
+        '-framerate',
+        fps.toString(),
+        '-i',
+        '${frameDir.path}/frame_%04d.png',
+        '-vf',
+        'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+        '-c:v',
+        'libx264',
+        '-pix_fmt',
+        'yuv420p',
+        '-crf',
+        '18',
+        '-r',
+        fps.toString(),
         outputPath,
       ]);
 
@@ -121,8 +129,7 @@ class VideoExporter {
       final image = await boundary.toImage(pixelRatio: 1.0);
       final w = image.width;
       final h = image.height;
-      final byteData =
-          await image.toByteData(format: ui.ImageByteFormat.png);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       image.dispose();
       if (byteData == null) return (null, null, null);
       return (byteData.buffer.asUint8List(), w, h);
@@ -132,7 +139,9 @@ class VideoExporter {
   }
 
   static String _videosPath() {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '';
+    final home = Platform.environment['HOME'] ??
+        Platform.environment['USERPROFILE'] ??
+        '';
     final dir = Directory('$home/Videos');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir.path;

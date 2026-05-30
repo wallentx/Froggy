@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:lottie/lottie.dart';
 
 import 'animation.dart';
 import 'video_exporter.dart';
+import 'weather_overlay.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,7 +26,7 @@ class MyApp extends StatelessWidget {
       title: 'Google\'s Weather Frog (Froggy)',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
-      home: AnimationScreen(),
+      home: const AnimationScreen(),
     );
   }
 }
@@ -44,8 +45,10 @@ class ParsedScene {
 }
 
 class AnimationScreen extends StatefulWidget {
+  const AnimationScreen({super.key});
+
   @override
-  _AnimationScreenState createState() => _AnimationScreenState();
+  State<AnimationScreen> createState() => _AnimationScreenState();
 }
 
 class _AnimationScreenState extends State<AnimationScreen> {
@@ -54,15 +57,15 @@ class _AnimationScreenState extends State<AnimationScreen> {
     FilePair('fields_day_hazy_bg.webp', 'fields_day_hazy_frog.flr'),
     FilePair('fields_day_rainy_bg.webp', 'fields_day_rainy_frog.flr'),
     FilePair('fields_day_snowy_bg.webp', 'fields_day_snowy_frog.flr'),
-    FilePair('fields_day_sunny_bg.webp', 'fields_day_sunny_frog.flr'), 
+    FilePair('fields_day_sunny_bg.webp', 'fields_day_sunny_frog.flr'),
     FilePair('fields_morning_cloudy_bg.webp', 'fields_morning_cloudy_frog.flr'),
     FilePair('fields_morning_hazy_bg.webp', 'fields_morning_hazy_frog.flr'),
-    FilePair('fields_day_rainy_bg.webp', 'fields_morning_rainy_frog.flr'), 
+    FilePair('fields_morning_rainy_bg.webp', 'fields_morning_rainy_frog.flr'),
     FilePair('fields_morning_snowy_bg.webp', 'fields_morning_snowy_frog.flr'),
     FilePair('fields_morning_sunny_bg.webp', 'fields_morning_sunny_frog.flr'),
-    FilePair('fields_night_hazy_bg.webp', 'fields_night_cloudy_frog.flr'), 
+    FilePair('fields_night_cloudy_bg.webp', 'fields_night_cloudy_frog.flr'),
     FilePair('fields_night_hazy_bg.webp', 'fields_night_hazy_frog.flr'),
-    FilePair('fields_night_rainy_bg.webp', 'fields_night_rainy_frog.flr'), 
+    FilePair('fields_night_rainy_bg.webp', 'fields_night_rainy_frog.flr'),
     FilePair('fields_night_snowy_bg.webp', 'fields_night_snowy_frog.flr'),
     FilePair('fields_night_sunny_bg.webp', 'fields_night_sunny_frog.flr'),
     FilePair('fields_sunset_cloudy_bg.webp', 'fields_sunset_cloudy_frog.flr'),
@@ -79,29 +82,48 @@ class _AnimationScreenState extends State<AnimationScreen> {
     FilePair('hill_morning_hazy_bg.webp', 'hill_morning_hazy_frog.flr'),
     FilePair('hill_morning_rainy_bg.webp', 'hill_morning_rainy_frog.flr'),
     FilePair('hill_morning_snowy_bg.webp', 'hill_morning_snowy_frog.flr'),
-    FilePair('hill_day_sunny_bg.webp', 'hill_morning_sunny_frog.flr'), 
+    FilePair('hill_morning_sunny_bg.webp', 'hill_morning_sunny_frog.flr'),
     FilePair('hill_night_cloudy_bg.webp', 'hill_night_cloudy_frog.flr'),
     FilePair('hill_night_hazy_bg.webp', 'hill_night_hazy_frog.flr'),
     FilePair('hill_night_rainy_bg.webp', 'hill_night_rainy_frog.flr'),
     FilePair('hill_night_snowy_bg.webp', 'hill_night_snowy_frog.flr'),
     FilePair('hill_night_sunny_bg.webp', 'hill_night_sunny_frog.flr'),
+    FilePair('hill_sunset_cloudy_bg.webp', 'hill_sunset_cloudy_frog.flr'),
+    FilePair('hill_sunset_hazy_bg.webp', 'hill_sunset_hazy_frog.flr'),
+    FilePair('hill_sunset_rainy_bg.webp', 'hill_sunset_rainy_frog.flr'),
+    FilePair('hill_sunset_snowy_bg.webp', 'hill_sunset_snowy_frog.flr'),
     FilePair('hill_sunset_sunny_bg.webp', 'hill_sunset_sunny_frog.flr'),
     FilePair('mushroom_day_cloudy_bg.webp', 'mushroom_day_cloudy_frog.flr'),
     FilePair('mushroom_day_hazy_bg.webp', 'mushroom_day_hazy_frog.flr'),
     FilePair('mushroom_day_rainy_bg.webp', 'mushroom_day_rainy_frog.flr'),
     FilePair('mushroom_day_snowy_bg.webp', 'mushroom_day_snowy_frog.flr'),
     FilePair('mushroom_day_sunny_bg.webp', 'mushroom_day_sunny_frog.flr'),
-    FilePair('mushroom_morning_cloudy_bg.webp', 'mushroom_morning_cloudy_frog.flr'),
+    FilePair(
+      'mushroom_morning_cloudy_bg.webp',
+      'mushroom_morning_cloudy_frog.flr',
+    ),
     FilePair('mushroom_morning_hazy_bg.webp', 'mushroom_morning_hazy_frog.flr'),
-    FilePair('mushroom_morning_rainy_bg.webp', 'mushroom_morning_rainy_frog.flr'),
-    FilePair('mushroom_morning_snowy_bg.webp', 'mushroom_morning_snowy_frog.flr'),
-    FilePair('mushroom_morning_sunny_bg.webp', 'mushroom_morning_sunny_frog.flr'),
+    FilePair(
+      'mushroom_morning_rainy_bg.webp',
+      'mushroom_morning_rainy_frog.flr',
+    ),
+    FilePair(
+      'mushroom_morning_snowy_bg.webp',
+      'mushroom_morning_snowy_frog.flr',
+    ),
+    FilePair(
+      'mushroom_morning_sunny_bg.webp',
+      'mushroom_morning_sunny_frog.flr',
+    ),
     FilePair('mushroom_night_cloudy_bg.webp', 'mushroom_night_cloudy_frog.flr'),
     FilePair('mushroom_night_hazy_bg.webp', 'mushroom_night_hazy_frog.flr'),
     FilePair('mushroom_night_rainy_bg.webp', 'mushroom_night_rainy_frog.flr'),
     FilePair('mushroom_night_snowy_bg.webp', 'mushroom_night_snowy_frog.flr'),
     FilePair('mushroom_night_sunny_bg.webp', 'mushroom_night_sunny_frog.flr'),
-    FilePair('mushroom_sunset_cloudy_bg.webp', 'mushroom_sunset_cloudy_frog.flr'),
+    FilePair(
+      'mushroom_sunset_cloudy_bg.webp',
+      'mushroom_sunset_cloudy_frog.flr',
+    ),
     FilePair('mushroom_sunset_hazy_bg.webp', 'mushroom_sunset_hazy_frog.flr'),
     FilePair('mushroom_sunset_rainy_bg.webp', 'mushroom_sunset_rainy_frog.flr'),
     FilePair('mushroom_sunset_snowy_bg.webp', 'mushroom_sunset_snowy_frog.flr'),
@@ -118,7 +140,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
   // Zoom & Pan state
   bool _cameraUnlocked = false;
-  final TransformationController _transformationController = TransformationController();
+  final TransformationController _transformationController =
+      TransformationController();
 
   // HUD Visibility state
   bool _showHUD = true;
@@ -142,14 +165,15 @@ class _AnimationScreenState extends State<AnimationScreen> {
   @override
   void initState() {
     super.initState();
-    
+
     // Enable sticky fullscreen immersive mode
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
     froggyAnimations = filePairs.map((pair) {
       return FroggyAnimation(
-          backgroundFile: pair.backgroundFile,
-          animationFile: pair.animationFile);
+        backgroundFile: pair.backgroundFile,
+        animationFile: pair.animationFile,
+      );
     }).toList();
 
     // Parse all file pairs into categorizable scenes
@@ -174,6 +198,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
     // Restore default system UI overlay behavior
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _ambientTimer?.cancel();
+    for (final animation in froggyAnimations) {
+      animation.dispose();
+    }
     _pageController.dispose();
     _transformationController.dispose();
     _mainFocusNode.dispose();
@@ -183,7 +210,7 @@ class _AnimationScreenState extends State<AnimationScreen> {
   void _parseAllScenes() {
     for (int i = 0; i < filePairs.length; i++) {
       final bg = filePairs[i].backgroundFile;
-      
+
       String loc = "Fields";
       if (bg.startsWith('hill_')) loc = "Hills";
       if (bg.startsWith('mushroom_')) loc = "Mushroom";
@@ -200,16 +227,22 @@ class _AnimationScreenState extends State<AnimationScreen> {
       if (bg.contains('_rainy_')) w = "Rainy";
       if (bg.contains('_snowy_')) w = "Snowy";
 
-      parsedScenes.add(ParsedScene(index: i, location: loc, time: t, weather: w));
+      parsedScenes.add(
+        ParsedScene(index: i, location: loc, time: t, weather: w),
+      );
     }
   }
 
   void _syncSelectionsToCurrentIndex(int index) {
     final parsed = parsedScenes[index];
+    final nextWeather =
+        sceneWeatherForWeather(selectedWeather) == parsed.weather
+        ? selectedWeather
+        : parsed.weather;
     setState(() {
       selectedLocation = parsed.location;
       selectedTime = parsed.time;
-      selectedWeather = parsed.weather;
+      selectedWeather = nextWeather;
     });
   }
 
@@ -221,7 +254,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
     _ambientTimer?.cancel();
     // Periodically checks if the app is left idle to cycle behaviors
     _ambientTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
-      final idleSeconds = DateTime.now().difference(_lastInteractionTime).inSeconds;
+      final idleSeconds = DateTime.now()
+          .difference(_lastInteractionTime)
+          .inSeconds;
       if (idleSeconds >= 15 && !_isReacting && !_cameraUnlocked) {
         if (idleSeconds % 45 < 15) {
           // Every 45 seconds of idle, play a greeting reaction animation
@@ -236,14 +271,22 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
   void _triggerGreetingReaction() {
     final greetName = froggyAnimation.greetingAnimation;
-    if (greetName != null) {
+    if (greetName == null || _isReacting) return;
+
+    final started = froggyAnimation.triggerReaction(
+      greetName,
+      onComplete: () {
+        if (mounted) {
+          setState(() {
+            _isReacting = false;
+          });
+        }
+      },
+    );
+
+    if (started) {
       setState(() {
         _isReacting = true;
-      });
-      froggyAnimation.triggerReaction(greetName, onComplete: () {
-        setState(() {
-          _isReacting = false;
-        });
       });
     }
   }
@@ -263,7 +306,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
   void _previousAnimation() {
     _recordInteraction();
     if (_pageController.hasClients) {
-      int prev = (currentIndex - 1 + froggyAnimations.length) % froggyAnimations.length;
+      int prev =
+          (currentIndex - 1 + froggyAnimations.length) %
+          froggyAnimations.length;
       _pageController.animateToPage(
         prev,
         duration: const Duration(milliseconds: 400),
@@ -273,34 +318,46 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _cycleLoopAnimation() {
+    final changed = froggyAnimation.changeAnimation();
+    if (!changed) return;
+
     _recordInteraction();
-    setState(() {
-      froggyAnimation.changeAnimation();
-    });
+    setState(() {});
   }
 
   void _updateSceneFromSelectors() {
     _recordInteraction();
+    final sceneWeather = sceneWeatherForWeather(selectedWeather);
+
     // Try to find the exact match index
-    int matchIdx = parsedScenes.indexWhere((p) =>
-        p.location == selectedLocation &&
-        p.time == selectedTime &&
-        p.weather == selectedWeather);
+    int matchIdx = parsedScenes.indexWhere(
+      (p) =>
+          p.location == selectedLocation &&
+          p.time == selectedTime &&
+          p.weather == sceneWeather,
+    );
 
     if (matchIdx != -1) {
+      if (matchIdx == currentIndex) {
+        setState(() {});
+      }
       _pageController.jumpToPage(matchIdx);
     } else {
       // Find closest match if combo is not available (e.g. missing bg)
-      int closestIdx = parsedScenes.indexWhere((p) =>
-          p.location == selectedLocation && p.weather == selectedWeather);
+      int closestIdx = parsedScenes.indexWhere(
+        (p) => p.location == selectedLocation && p.weather == sceneWeather,
+      );
 
       if (closestIdx == -1) {
-        closestIdx = parsedScenes.indexWhere((p) =>
-            p.location == selectedLocation && p.time == selectedTime);
+        closestIdx = parsedScenes.indexWhere(
+          (p) => p.location == selectedLocation && p.time == selectedTime,
+        );
       }
 
       if (closestIdx == -1) {
-        closestIdx = parsedScenes.indexWhere((p) => p.location == selectedLocation);
+        closestIdx = parsedScenes.indexWhere(
+          (p) => p.location == selectedLocation,
+        );
       }
 
       if (closestIdx != -1) {
@@ -312,10 +369,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Combination not found. Loaded closest: ${selectedLocation} - ${selectedTime} (${selectedWeather})',
+              'Combination not found. Loaded closest: $selectedLocation - $selectedTime ($selectedWeather)',
               style: const TextStyle(color: Colors.white, fontSize: 12),
             ),
-            backgroundColor: Colors.black.withOpacity(0.8),
+            backgroundColor: Colors.black.withValues(alpha: 0.8),
             duration: const Duration(seconds: 3),
           ),
         );
@@ -334,7 +391,7 @@ class _AnimationScreenState extends State<AnimationScreen> {
       child: ChoiceChip(
         label: Text(label),
         selected: selected,
-        selectedColor: activeColor.withOpacity(0.25),
+        selectedColor: activeColor.withValues(alpha: 0.25),
         disabledColor: Colors.transparent,
         backgroundColor: Colors.white10,
         labelStyle: TextStyle(
@@ -343,12 +400,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
           fontSize: 12.5,
         ),
         side: BorderSide(
-          color: selected ? activeColor.withOpacity(0.5) : Colors.white12,
+          color: selected ? activeColor.withValues(alpha: 0.5) : Colors.white12,
           width: 1,
         ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         onSelected: (_) => onTap(),
       ),
     );
@@ -359,7 +414,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Colors.black.withOpacity(0.85),
+      isScrollControlled: true,
+      backgroundColor: Colors.black.withValues(alpha: 0.85),
       elevation: 10,
       barrierColor: Colors.black45,
       shape: const RoundedRectangleBorder(
@@ -368,109 +424,140 @@ class _AnimationScreenState extends State<AnimationScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            return ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 5,
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Colors.white24,
-                          borderRadius: BorderRadius.circular(2.5),
-                        ),
-                      ),
-                    ),
-                    const Center(
-                      child: Text(
-                        'Customize Weather Scene',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
+            final sheetMaxHeight = MediaQuery.sizeOf(context).height * 0.86;
 
-                    // Location Row
-                    const Text(
-                      'Location',
-                      style: TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 6),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: ['Fields', 'Hills', 'Mushroom'].map((loc) {
-                          return _buildSelectionPill(
-                            label: loc,
-                            selected: selectedLocation == loc,
-                            activeColor: Colors.cyanAccent,
-                            onTap: () {
-                              setModalState(() => selectedLocation = loc);
-                              _updateSceneFromSelectors();
-                            },
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+            return SafeArea(
+              top: false,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: sheetMaxHeight),
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(28),
+                  ),
+                  child: SingleChildScrollView(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40,
+                              height: 5,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(2.5),
+                              ),
+                            ),
+                          ),
+                          const Center(
+                            child: Text(
+                              'Customize Weather Scene',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
 
-                    // Time Row
-                    const Text(
-                      'Time of Day',
-                      style: TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 6),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: ['Morning', 'Day', 'Sunset', 'Night'].map((time) {
-                          return _buildSelectionPill(
-                            label: time,
-                            selected: selectedTime == time,
-                            activeColor: Colors.amberAccent,
-                            onTap: () {
-                              setModalState(() => selectedTime = time);
-                              _updateSceneFromSelectors();
-                            },
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
+                          // Location Row
+                          const Text(
+                            'Location',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white54,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: ['Fields', 'Hills', 'Mushroom'].map((
+                                loc,
+                              ) {
+                                return _buildSelectionPill(
+                                  label: loc,
+                                  selected: selectedLocation == loc,
+                                  activeColor: Colors.cyanAccent,
+                                  onTap: () {
+                                    setModalState(() => selectedLocation = loc);
+                                    _updateSceneFromSelectors();
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
 
-                    // Weather Row
-                    const Text(
-                      'Weather',
-                      style: TextStyle(fontSize: 13, color: Colors.white54, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 6),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: ['Clear', 'Cloudy', 'Hazy', 'Rainy', 'Snowy'].map((weather) {
-                          return _buildSelectionPill(
-                            label: weather,
-                            selected: selectedWeather == weather,
-                            activeColor: Colors.purpleAccent,
-                            onTap: () {
-                              setModalState(() => selectedWeather = weather);
-                              _updateSceneFromSelectors();
-                            },
-                          );
-                        }).toList(),
+                          // Time Row
+                          const Text(
+                            'Time of Day',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white54,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: ['Morning', 'Day', 'Sunset', 'Night']
+                                  .map((time) {
+                                    return _buildSelectionPill(
+                                      label: time,
+                                      selected: selectedTime == time,
+                                      activeColor: Colors.amberAccent,
+                                      onTap: () {
+                                        setModalState(
+                                          () => selectedTime = time,
+                                        );
+                                        _updateSceneFromSelectors();
+                                      },
+                                    );
+                                  })
+                                  .toList(),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Weather Row
+                          const Text(
+                            'Weather',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.white54,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            runSpacing: 8,
+                            children: weatherOptions.map((option) {
+                              final weather = option.label;
+                              return _buildSelectionPill(
+                                label: weather,
+                                selected: selectedWeather == weather,
+                                activeColor: Colors.purpleAccent,
+                                onTap: () {
+                                  setModalState(
+                                    () => selectedWeather = weather,
+                                  );
+                                  _updateSceneFromSelectors();
+                                },
+                              );
+                            }).toList(),
+                          ),
+                          const SizedBox(height: 24),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 24),
-                  ],
+                  ),
                 ),
               ),
             );
@@ -486,6 +573,24 @@ class _AnimationScreenState extends State<AnimationScreen> {
     return Platform.isAndroid || Platform.isIOS;
   }
 
+  Widget _buildWeatherOverlay(
+    String asset, {
+    required BoxFit fit,
+    required Alignment alignment,
+  }) {
+    return IgnorePointer(
+      child: SizedBox.expand(
+        child: Lottie.asset(
+          asset,
+          fit: fit,
+          alignment: alignment,
+          repeat: true,
+          animate: true,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
@@ -494,8 +599,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
     // Immersive custom alignment focusing
     final Alignment cameraAlignment = isPortrait
         ? (_cameraFocus == 0
-            ? Alignment.centerLeft
-            : (_cameraFocus == 2 ? Alignment.centerRight : Alignment.center))
+              ? Alignment.centerLeft
+              : (_cameraFocus == 2 ? Alignment.centerRight : Alignment.center))
         : Alignment.center;
 
     return Focus(
@@ -539,22 +644,45 @@ class _AnimationScreenState extends State<AnimationScreen> {
                 key: _repaintKey,
                 child: Listener(
                   onPointerSignal: (pointerSignal) {
-                    if (pointerSignal is PointerScrollEvent && _cameraUnlocked) {
+                    if (pointerSignal is PointerScrollEvent &&
+                        _cameraUnlocked) {
                       final double scrollY = pointerSignal.scrollDelta.dy;
                       // Zoom direction: Scroll Up zooms IN, Scroll Down zooms OUT
                       final double zoomDelta = -scrollY / 250.0;
-                      final double currentScale = _transformationController.value.getMaxScaleOnAxis();
-                      final double newScale = (currentScale + zoomDelta).clamp(1.0, 4.0);
+                      final double currentScale = _transformationController
+                          .value
+                          .getMaxScaleOnAxis();
+                      final double newScale = (currentScale + zoomDelta).clamp(
+                        1.0,
+                        4.0,
+                      );
 
                       if (currentScale != newScale) {
                         final double zoomFactor = newScale / currentScale;
-                        final Offset mousePosition = pointerSignal.localPosition;
+                        final Offset mousePosition =
+                            pointerSignal.localPosition;
 
                         setState(() {
-                          _transformationController.value = _transformationController.value.clone()
-                            ..translate(mousePosition.dx, mousePosition.dy)
-                            ..scale(zoomFactor)
-                            ..translate(-mousePosition.dx, -mousePosition.dy);
+                          _transformationController.value =
+                              _transformationController.value.clone()
+                                ..translateByDouble(
+                                  mousePosition.dx,
+                                  mousePosition.dy,
+                                  0,
+                                  1,
+                                )
+                                ..scaleByDouble(
+                                  zoomFactor,
+                                  zoomFactor,
+                                  zoomFactor,
+                                  1,
+                                )
+                                ..translateByDouble(
+                                  -mousePosition.dx,
+                                  -mousePosition.dy,
+                                  0,
+                                  1,
+                                );
                         });
                       }
                     }
@@ -569,33 +697,77 @@ class _AnimationScreenState extends State<AnimationScreen> {
                       setState(() {
                         currentIndex = index;
                         froggyAnimation = froggyAnimations[currentIndex];
+                        _isReacting = false;
                         _syncSelectionsToCurrentIndex(index);
                         _recordInteraction();
                       });
                     },
                     itemBuilder: (context, index) {
                       final anim = froggyAnimations[index];
-                      
+                      final overlayWeather = index == currentIndex
+                          ? selectedWeather
+                          : parsedScenes[index].weather;
+                      final overlay = overlayForWeather(overlayWeather);
+
                       // Interactive scene rendering with Zoom/Pan capabilities
                       final Widget sceneContent = Stack(
                         children: [
                           // Full contain view with blurred background if fit mode active
                           if (isPortrait && _fitWholeScene) ...[
-                            BlurredFitBackground(backgroundFile: anim.backgroundFile),
+                            BlurredFitBackground(
+                              backgroundFile: anim.backgroundFile,
+                            ),
                             Center(
                               child: AspectRatio(
-                                aspectRatio: 1.77, // Fits 16:9 landscape aspect ratio
+                                aspectRatio:
+                                    1.77, // Fits 16:9 landscape aspect ratio
                                 child: Stack(
                                   children: [
-                                    anim.getBackground(fit: BoxFit.contain, alignment: Alignment.center),
-                                    anim.getAnimation(fit: BoxFit.contain, alignment: Alignment.center),
+                                    anim.getBackground(
+                                      fit: BoxFit.contain,
+                                      alignment: Alignment.center,
+                                    ),
+                                    if (overlay?.backgroundAsset != null)
+                                      _buildWeatherOverlay(
+                                        overlay!.backgroundAsset!,
+                                        fit: BoxFit.contain,
+                                        alignment: Alignment.center,
+                                      ),
+                                    anim.getAnimation(
+                                      fit: BoxFit.contain,
+                                      alignment: Alignment.center,
+                                    ),
+                                    if (overlay?.foregroundAsset != null)
+                                      _buildWeatherOverlay(
+                                        overlay!.foregroundAsset!,
+                                        fit: BoxFit.contain,
+                                        alignment: Alignment.center,
+                                      ),
                                   ],
                                 ),
                               ),
                             ),
                           ] else ...[
-                            anim.getBackground(fit: BoxFit.cover, alignment: cameraAlignment),
-                            anim.getAnimation(fit: BoxFit.cover, alignment: cameraAlignment),
+                            anim.getBackground(
+                              fit: BoxFit.cover,
+                              alignment: cameraAlignment,
+                            ),
+                            if (overlay?.backgroundAsset != null)
+                              _buildWeatherOverlay(
+                                overlay!.backgroundAsset!,
+                                fit: BoxFit.cover,
+                                alignment: cameraAlignment,
+                              ),
+                            anim.getAnimation(
+                              fit: BoxFit.cover,
+                              alignment: cameraAlignment,
+                            ),
+                            if (overlay?.foregroundAsset != null)
+                              _buildWeatherOverlay(
+                                overlay!.foregroundAsset!,
+                                fit: BoxFit.cover,
+                                alignment: cameraAlignment,
+                              ),
                           ],
                         ],
                       );
@@ -611,7 +783,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
                         onInteractionEnd: (details) {
                           // Resets to normal if locked or user pinches/zooms out completely
                           if (!_cameraUnlocked) {
-                            _transformationController.value = Matrix4.identity();
+                            _transformationController.value =
+                                Matrix4.identity();
                           }
                         },
                         child: sceneContent,
@@ -634,7 +807,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
                       duration: const Duration(milliseconds: 250),
                       child: Center(
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(20),
@@ -643,14 +819,18 @@ class _AnimationScreenState extends State<AnimationScreen> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.info_outline, color: Colors.white70, size: 14),
+                              const Icon(
+                                Icons.info_outline,
+                                color: Colors.white70,
+                                size: 14,
+                              ),
                               const SizedBox(width: 6),
                               Text(
                                 _isMobileDevice
                                     ? 'Camera Mode: Pinch to Zoom, Drag to Pan'
                                     : 'Camera Mode: Mouse Scroll to Zoom, Drag to Pan',
                                 style: TextStyle(
-                                  color: Colors.white.withOpacity(0.9),
+                                  color: Colors.white.withValues(alpha: 0.9),
                                   fontSize: 12,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -685,9 +865,16 @@ class _AnimationScreenState extends State<AnimationScreen> {
                               decoration: BoxDecoration(
                                 color: Colors.black45,
                                 borderRadius: BorderRadius.circular(24),
-                                border: Border.all(color: Colors.white12, width: 1),
+                                border: Border.all(
+                                  color: Colors.white12,
+                                  width: 1,
+                                ),
                               ),
-                              child: const Icon(Icons.videocam, color: Colors.white70, size: 24),
+                              child: const Icon(
+                                Icons.videocam,
+                                color: Colors.white70,
+                                size: 24,
+                              ),
                             ),
                           ),
                         ),
@@ -708,17 +895,24 @@ class _AnimationScreenState extends State<AnimationScreen> {
                     duration: const Duration(milliseconds: 250),
                     child: Center(
                       child: GestureDetector(
-                        onTap: () {}, // Swallows taps to prevent toggling the HUD when clicking controls
+                        onTap:
+                            () {}, // Swallows taps to prevent toggling the HUD when clicking controls
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(28),
                           child: BackdropFilter(
                             filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
                             child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.6),
+                                color: Colors.black.withValues(alpha: 0.6),
                                 borderRadius: BorderRadius.circular(28),
-                                border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                  width: 1,
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -726,7 +920,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
                                 children: [
                                   // Previous Button
                                   IconButton(
-                                    icon: const Icon(Icons.chevron_left, color: Colors.white70),
+                                    icon: const Icon(
+                                      Icons.chevron_left,
+                                      color: Colors.white70,
+                                    ),
                                     onPressed: _previousAnimation,
                                     tooltip: 'Previous Scene',
                                   ),
@@ -734,52 +931,97 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
                                   // Open 3-Row Segmented Scene Selector Drawer
                                   IconButton(
-                                    icon: const Icon(Icons.tune, color: Colors.white),
+                                    icon: const Icon(
+                                      Icons.tune,
+                                      color: Colors.white,
+                                    ),
                                     onPressed: _showSceneDrawer,
                                     tooltip: 'Weather Scenes',
                                   ),
                                   const SizedBox(width: 4),
 
-                                  // Trigger Waving / Greeting Reactive Animation (Bespoke)
-                                  IconButton(
-                                    icon: Icon(
-                                      _isReacting ? Icons.hourglass_empty : Icons.front_hand,
-                                      color: _isReacting ? Colors.yellowAccent : Colors.tealAccent,
-                                    ),
-                                    onPressed: _isReacting
-                                        ? null
-                                        : () {
-                                            _recordInteraction();
-                                            _triggerGreetingReaction();
-                                          },
-                                    tooltip: 'Interact / Say Hello',
-                                  ),
-                                  const SizedBox(width: 4),
+                                  ValueListenableBuilder<AnimationCapabilities>(
+                                    valueListenable:
+                                        froggyAnimation.capabilitiesNotifier,
+                                    builder: (context, capabilities, _) {
+                                      final canTriggerGreeting =
+                                          capabilities.canTriggerGreeting;
+                                      final canChangeBehavior =
+                                          capabilities.canChangeBehavior;
+                                      final canPressGreeting =
+                                          canTriggerGreeting && !_isReacting;
 
-                                  // Cycle Base Looping Actions (Excludes Hello/Wave)
-                                  IconButton(
-                                    icon: const Icon(Icons.directions_run, color: Colors.amberAccent),
-                                    onPressed: _cycleLoopAnimation,
-                                    tooltip: 'Change Behavior',
+                                      return Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // Trigger Waving / Greeting Reactive Animation.
+                                          IconButton(
+                                            icon: Icon(
+                                              _isReacting
+                                                  ? Icons.hourglass_empty
+                                                  : Icons.front_hand,
+                                              color: canTriggerGreeting
+                                                  ? (_isReacting
+                                                        ? Colors.yellowAccent
+                                                        : Colors.tealAccent)
+                                                  : Colors.white24,
+                                            ),
+                                            onPressed: canPressGreeting
+                                                ? () {
+                                                    _recordInteraction();
+                                                    _triggerGreetingReaction();
+                                                  }
+                                                : null,
+                                            tooltip: canTriggerGreeting
+                                                ? 'Interact / Say Hello'
+                                                : 'No hello animation',
+                                          ),
+                                          const SizedBox(width: 4),
+
+                                          // Cycle alternate frog behavior loops.
+                                          IconButton(
+                                            icon: Icon(
+                                              Icons.directions_run,
+                                              color: canChangeBehavior
+                                                  ? Colors.amberAccent
+                                                  : Colors.white24,
+                                            ),
+                                            onPressed: canChangeBehavior
+                                                ? _cycleLoopAnimation
+                                                : null,
+                                            tooltip: canChangeBehavior
+                                                ? 'Change Behavior'
+                                                : 'No alternate behavior',
+                                          ),
+                                          const SizedBox(width: 4),
+                                        ],
+                                      );
+                                    },
                                   ),
-                                  const SizedBox(width: 4),
 
                                   // Interactive Zoom & Pan Camera Toggle
                                   IconButton(
                                     icon: Icon(
-                                      _cameraUnlocked ? Icons.zoom_in : Icons.zoom_out,
-                                      color: _cameraUnlocked ? Colors.lightBlueAccent : Colors.white54,
+                                      _cameraUnlocked
+                                          ? Icons.zoom_in
+                                          : Icons.zoom_out,
+                                      color: _cameraUnlocked
+                                          ? Colors.lightBlueAccent
+                                          : Colors.white54,
                                     ),
                                     onPressed: () {
                                       _recordInteraction();
                                       setState(() {
                                         _cameraUnlocked = !_cameraUnlocked;
                                         if (!_cameraUnlocked) {
-                                          _transformationController.value = Matrix4.identity();
+                                          _transformationController.value =
+                                              Matrix4.identity();
                                         }
                                       });
                                     },
-                                    tooltip: _cameraUnlocked ? 'Lock Camera' : 'Unlock Camera',
+                                    tooltip: _cameraUnlocked
+                                        ? 'Lock Camera'
+                                        : 'Unlock Camera',
                                   ),
 
                                   // Portrait-specific controls
@@ -788,7 +1030,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
                                     // Toggle between Cover (Immersive) and Contain (Fit Scene)
                                     IconButton(
                                       icon: Icon(
-                                        _fitWholeScene ? Icons.fullscreen_exit : Icons.fullscreen,
+                                        _fitWholeScene
+                                            ? Icons.fullscreen_exit
+                                            : Icons.fullscreen,
                                         color: Colors.greenAccent,
                                       ),
                                       onPressed: () {
@@ -797,7 +1041,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
                                           _fitWholeScene = !_fitWholeScene;
                                         });
                                       },
-                                      tooltip: _fitWholeScene ? 'Immersive View' : 'Show Full Scene',
+                                      tooltip: _fitWholeScene
+                                          ? 'Immersive View'
+                                          : 'Show Full Scene',
                                     ),
                                     if (!_fitWholeScene) ...[
                                       const SizedBox(width: 4),
@@ -807,14 +1053,17 @@ class _AnimationScreenState extends State<AnimationScreen> {
                                           _cameraFocus == 0
                                               ? Icons.align_horizontal_left
                                               : (_cameraFocus == 2
-                                                  ? Icons.align_horizontal_right
-                                                  : Icons.align_horizontal_center),
+                                                    ? Icons
+                                                          .align_horizontal_right
+                                                    : Icons
+                                                          .align_horizontal_center),
                                           color: Colors.purpleAccent,
                                         ),
                                         onPressed: () {
                                           _recordInteraction();
                                           setState(() {
-                                            _cameraFocus = (_cameraFocus + 1) % 3;
+                                            _cameraFocus =
+                                                (_cameraFocus + 1) % 3;
                                           });
                                         },
                                         tooltip: 'Camera Focus',
@@ -825,7 +1074,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
                                   const SizedBox(width: 4),
                                   // Next Button
                                   IconButton(
-                                    icon: const Icon(Icons.chevron_right, color: Colors.white70),
+                                    icon: const Icon(
+                                      Icons.chevron_right,
+                                      color: Colors.white70,
+                                    ),
                                     onPressed: _nextAnimation,
                                     tooltip: 'Next Scene',
                                   ),
@@ -864,7 +1116,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
           return AlertDialog(
             backgroundColor: const Color(0xFF1E1E1E),
-            title: const Text('Export Animation', style: TextStyle(color: Colors.white)),
+            title: const Text(
+              'Export Animation',
+              style: TextStyle(color: Colors.white),
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -897,7 +1152,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.white54),
+                ),
               ),
               ElevatedButton.icon(
                 icon: const Icon(Icons.videocam, size: 16),
@@ -923,8 +1181,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   Future<void> _startExport(double durationSeconds, int index) async {
-    final progressNotifier =
-        ValueNotifier<(double, String)>((0.0, 'Starting…'));
+    final progressNotifier = ValueNotifier<(double, String)>((
+      0.0,
+      'Starting…',
+    ));
 
     showDialog<void>(
       context: context,
@@ -935,7 +1195,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
           final (progress, status) = value;
           return AlertDialog(
             backgroundColor: const Color(0xFF1E1E1E),
-            title: const Text('Exporting…', style: TextStyle(color: Colors.white)),
+            title: const Text(
+              'Exporting…',
+              style: TextStyle(color: Colors.white),
+            ),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -946,7 +1209,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
                 const SizedBox(height: 12),
-                Text(status, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                Text(
+                  status,
+                  style: const TextStyle(color: Colors.white70, fontSize: 12),
+                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Keep the window visible during capture.',
@@ -996,7 +1262,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text('Export failed', style: TextStyle(color: Colors.redAccent)),
+        title: const Text(
+          'Export failed',
+          style: TextStyle(color: Colors.redAccent),
+        ),
         content: SizedBox(
           width: 560,
           height: 320,

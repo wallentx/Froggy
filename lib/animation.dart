@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flare_flutter/flare_actor.dart';
@@ -13,7 +14,8 @@ class LoopingFlareController extends FlareController {
   final ValueNotifier<double?> durationNotifier = ValueNotifier<double?>(null);
 
   // Expose loaded animations to the UI
-  final ValueNotifier<List<String>> availableAnimationsNotifier = ValueNotifier<List<String>>([]);
+  final ValueNotifier<List<String>> availableAnimationsNotifier =
+      ValueNotifier<List<String>>([]);
 
   // One-off reaction animation state
   ActorAnimation? _oneOffAnimation;
@@ -50,10 +52,11 @@ class LoopingFlareController extends FlareController {
     for (final anim in artboard.animations) {
       final name = anim.name;
       final isAction = name.contains('Action');
-      final isReaction = name.toLowerCase().contains('wave') ||
+      final isReaction =
+          name.toLowerCase().contains('wave') ||
           name.toLowerCase().contains('hello') ||
           name.toLowerCase().contains('greet');
-      
+
       if (!isAction && !isReaction) {
         _environmentalAnimations.add(anim);
         _envTimes[name] = 0.0;
@@ -70,16 +73,18 @@ class LoopingFlareController extends FlareController {
   }
 
   // Requests playing a one-off animation (like a wave/reaction)
-  void playOneOff(String name, {ui.VoidCallback? onComplete}) {
+  bool playOneOff(String name, {ui.VoidCallback? onComplete}) {
     final artboard = _artboard;
-    if (artboard == null) return;
+    if (artboard == null) return false;
 
     final anim = artboard.getAnimation(name);
     if (anim != null) {
       _oneOffAnimation = anim;
       _oneOffTime = 0.0;
       _onOneOffComplete = onComplete;
+      return true;
     }
+    return false;
   }
 
   @override
@@ -94,9 +99,7 @@ class LoopingFlareController extends FlareController {
     }
 
     // 2. Advance and apply the base frog looping behavior
-    if (_animation == null) {
-      _animation = artboard.getAnimation(animationName);
-    }
+    _animation ??= artboard.getAnimation(animationName);
     if (_animation != null) {
       if (durationNotifier.value == null) {
         durationNotifier.value = _animation!.duration;
@@ -134,15 +137,76 @@ class FilePair {
   FilePair(this.backgroundFile, this.animationFile);
 }
 
+class AnimationCapabilities {
+  final String? greetingAnimation;
+  final List<String> loopingAnimations;
+
+  const AnimationCapabilities({
+    required this.loopingAnimations,
+    this.greetingAnimation,
+  });
+
+  static const empty = AnimationCapabilities(loopingAnimations: []);
+
+  bool get canTriggerGreeting => greetingAnimation != null;
+  bool get canChangeBehavior => loopingAnimations.length > 1;
+}
+
+AnimationCapabilities animationCapabilitiesFor(List<String> animationNames) {
+  final names = animationNames.where((name) => name.trim().isNotEmpty).toList();
+  final greeting = _findGreetingAnimation(names);
+
+  final loopingAnimations = <String>[];
+  for (final name in names) {
+    final normalized = name.trim();
+    if (name == greeting) continue;
+    if (normalized == 'Hero-Action' ||
+        RegExp(r'^Sub-Action \d+$').hasMatch(normalized)) {
+      if (!loopingAnimations.contains(name)) {
+        loopingAnimations.add(name);
+      }
+    }
+  }
+
+  return AnimationCapabilities(
+    greetingAnimation: greeting,
+    loopingAnimations: loopingAnimations,
+  );
+}
+
+String? _findGreetingAnimation(List<String> names) {
+  for (final name in names) {
+    final lower = name.toLowerCase();
+    if (lower.contains('wave') ||
+        lower.contains('hello') ||
+        lower.contains('greet')) {
+      return name;
+    }
+  }
+
+  for (final name in names) {
+    if (name.trim() == 'Sub-Action 02') {
+      return name;
+    }
+  }
+
+  return null;
+}
+
 class FroggyAnimation {
   String backgroundFile;
   String animationFile;
   String currentAnimation = '';
 
   List<String> loopingAnimations = []; // Excludes the hello/wave action
-  String? greetingAnimation;          // Bespoke hello reaction
+  String? greetingAnimation; // Bespoke hello reaction
+  final ValueNotifier<AnimationCapabilities> capabilitiesNotifier =
+      ValueNotifier<AnimationCapabilities>(AnimationCapabilities.empty);
 
   late LoopingFlareController _controller;
+  AnimationCapabilities? _pendingCapabilities;
+  bool _capabilitiesNotificationScheduled = false;
+  bool _disposed = false;
 
   FroggyAnimation({required this.backgroundFile, required this.animationFile}) {
     currentAnimation = 'Hero-Action';
@@ -152,28 +216,14 @@ class FroggyAnimation {
     _controller.availableAnimationsNotifier.addListener(() {
       final allNames = _controller.availableAnimations;
       if (allNames.isNotEmpty) {
-        // 1. Identify the greeting animation (contains 'wave', 'hello', 'greet' or fallback to 'Sub-Action 02')
-        String? foundGreet;
-        for (final name in allNames) {
-          final lower = name.toLowerCase();
-          if (lower.contains('wave') || lower.contains('hello') || lower.contains('greet')) {
-            foundGreet = name;
-            break;
-          }
-        }
-        if (foundGreet == null && allNames.contains('Sub-Action 02')) {
-          foundGreet = 'Sub-Action 02';
-        }
-        greetingAnimation = foundGreet;
+        final capabilities = animationCapabilitiesFor(allNames);
+        greetingAnimation = capabilities.greetingAnimation;
+        loopingAnimations = capabilities.loopingAnimations;
+        _publishCapabilitiesLater(capabilities);
 
-        // 2. Loop animations are everything EXCEPT the greeting/wave action
-        loopingAnimations = allNames.where((name) => name != greetingAnimation).toList();
-        if (loopingAnimations.isEmpty) {
-          loopingAnimations = List.from(allNames);
-        }
-
-        // 3. Keep currentAnimation synced with loop group
-        if (!loopingAnimations.contains(currentAnimation)) {
+        // Keep currentAnimation synced with loop group.
+        if (loopingAnimations.isNotEmpty &&
+            !loopingAnimations.contains(currentAnimation)) {
           currentAnimation = loopingAnimations[0];
           _controller.setBaseAnimation(currentAnimation);
         }
@@ -183,7 +233,28 @@ class FroggyAnimation {
 
   LoopingFlareController get controller => _controller;
 
-  Widget getAnimation({BoxFit fit = BoxFit.cover, Alignment alignment = Alignment.center}) {
+  void _publishCapabilitiesLater(AnimationCapabilities capabilities) {
+    _pendingCapabilities = capabilities;
+    if (_capabilitiesNotificationScheduled) return;
+
+    _capabilitiesNotificationScheduled = true;
+    Timer.run(() {
+      _capabilitiesNotificationScheduled = false;
+      final capabilities = _pendingCapabilities;
+      _pendingCapabilities = null;
+      if (_disposed || capabilities == null) return;
+
+      capabilitiesNotifier.value = capabilities;
+    });
+  }
+
+  bool get canTriggerGreeting => greetingAnimation != null;
+  bool get canChangeBehavior => loopingAnimations.length > 1;
+
+  Widget getAnimation({
+    BoxFit fit = BoxFit.cover,
+    Alignment alignment = Alignment.center,
+  }) {
     return SizedBox(
       key: ValueKey(animationFile),
       width: double.infinity,
@@ -199,7 +270,10 @@ class FroggyAnimation {
     );
   }
 
-  Widget getBackground({BoxFit fit = BoxFit.cover, Alignment alignment = Alignment.center}) {
+  Widget getBackground({
+    BoxFit fit = BoxFit.cover,
+    Alignment alignment = Alignment.center,
+  }) {
     return Image.asset(
       'assets/$backgroundFile',
       width: double.infinity,
@@ -209,16 +283,25 @@ class FroggyAnimation {
     );
   }
 
-  void changeAnimation() {
-    if (loopingAnimations.isEmpty) return;
+  bool changeAnimation() {
+    if (!canChangeBehavior) return false;
     int index = loopingAnimations.indexOf(currentAnimation);
     index = (index + 1) % loopingAnimations.length;
     currentAnimation = loopingAnimations[index];
     _controller.setBaseAnimation(currentAnimation);
+    return true;
   }
 
-  void triggerReaction(String name, {ui.VoidCallback? onComplete}) {
-    _controller.playOneOff(name, onComplete: onComplete);
+  bool triggerReaction(String name, {ui.VoidCallback? onComplete}) {
+    return _controller.playOneOff(name, onComplete: onComplete);
+  }
+
+  void dispose() {
+    _disposed = true;
+    _pendingCapabilities = null;
+    capabilitiesNotifier.dispose();
+    _controller.durationNotifier.dispose();
+    _controller.availableAnimationsNotifier.dispose();
   }
 }
 
@@ -242,9 +325,7 @@ class BlurredFitBackground extends StatelessWidget {
           ),
         ),
         Positioned.fill(
-          child: Container(
-            color: Colors.black.withOpacity(0.4),
-          ),
+          child: Container(color: Colors.black.withValues(alpha: 0.4)),
         ),
         Positioned.fill(
           child: BackdropFilter(
