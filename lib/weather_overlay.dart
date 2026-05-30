@@ -16,6 +16,8 @@ class WeatherOverlay {
 
   @override
   int get hashCode => Object.hash(backgroundAsset, foregroundAsset);
+
+  bool get isEmpty => backgroundAsset == null && foregroundAsset == null;
 }
 
 class WeatherOption {
@@ -168,8 +170,21 @@ const List<WeatherOption> weatherOptions = [
   ),
 ];
 
-WeatherOverlay? overlayForWeather(String weather) {
-  return _weatherOptionForWeather(weather)?.overlay;
+WeatherOverlay? overlayForWeather(
+  String weather, {
+  bool performanceMode = false,
+}) {
+  final overlay = _weatherOptionForWeather(weather)?.overlay;
+  if (overlay == null || !performanceMode) return overlay;
+
+  if (_disabledPerformanceOverlayWeather.contains(weather)) {
+    return const WeatherOverlay(backgroundAsset: null, foregroundAsset: null);
+  }
+
+  return WeatherOverlay(
+    backgroundAsset: null,
+    foregroundAsset: overlay.foregroundAsset,
+  );
 }
 
 String sceneWeatherForWeather(String weather) {
@@ -182,3 +197,14 @@ WeatherOption? _weatherOptionForWeather(String weather) {
   }
   return null;
 }
+
+const Set<String> _disabledPerformanceOverlayWeather = {
+  'Storms',
+  'Rain/Hail',
+  'Snowy',
+  'Flurries',
+  'Scattered Snow',
+  'Heavy Snow',
+  'Blowing Snow',
+  'Blizzard',
+};

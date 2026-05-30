@@ -112,4 +112,34 @@ void main() {
   test('returns no overlay for unknown weather categories', () {
     expect(overlayForWeather('Foggy'), isNull);
   });
+
+  test(
+    'tv performance overlays avoid expensive full-screen weather layers',
+    () {
+      const basePath = 'assets/animated_weather/tablet';
+
+      expect(
+        overlayForWeather('Cloudy', performanceMode: true),
+        const WeatherOverlay(
+          backgroundAsset: null,
+          foregroundAsset: '$basePath/mostly_cloudy_foreground.json',
+        ),
+      );
+      expect(
+        overlayForWeather('Rainy', performanceMode: true),
+        const WeatherOverlay(
+          backgroundAsset: null,
+          foregroundAsset: '$basePath/showers_rain_foreground.json',
+        ),
+      );
+      expect(
+        overlayForWeather('Heavy Snow', performanceMode: true),
+        const WeatherOverlay(backgroundAsset: null, foregroundAsset: null),
+      );
+      expect(
+        overlayForWeather('Blizzard', performanceMode: true),
+        const WeatherOverlay(backgroundAsset: null, foregroundAsset: null),
+      );
+    },
+  );
 }

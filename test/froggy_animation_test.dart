@@ -79,4 +79,32 @@ void main() {
 
     expect(notificationCount, 1);
   });
+
+  testWidgets('unloading a scene drops loaded animation capabilities', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    final animation = FroggyAnimation(
+      backgroundFile: 'fields_day_cloudy_bg.webp',
+      animationFile: 'fields_day_cloudy_frog.flr',
+    );
+    addTearDown(animation.dispose);
+
+    animation.controller.availableAnimationsNotifier.value = [
+      'Hero-Action',
+      'Sub-Action 01',
+      'Sub-Action 02',
+    ];
+
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(animation.canChangeBehavior, isTrue);
+
+    animation.unloadLoadedResources();
+
+    expect(animation.canChangeBehavior, isFalse);
+    expect(animation.canTriggerGreeting, isFalse);
+    expect(animation.controller.availableAnimations, isEmpty);
+    expect(animation.controller.duration, isNull);
+  });
 }

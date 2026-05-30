@@ -45,13 +45,38 @@ class ParsedScene {
 }
 
 class AnimationScreen extends StatefulWidget {
-  const AnimationScreen({super.key});
+  const AnimationScreen({super.key, this.forceTvPerformanceMode});
+
+  @visibleForTesting
+  final bool? forceTvPerformanceMode;
 
   @override
   State<AnimationScreen> createState() => _AnimationScreenState();
 }
 
+@visibleForTesting
+bool shouldUseTvPerformanceMode({
+  required bool isAndroid,
+  required NavigationMode navigationMode,
+  required Size logicalSize,
+  required double devicePixelRatio,
+}) {
+  final physicalWidth = logicalSize.width * devicePixelRatio;
+  final physicalHeight = logicalSize.height * devicePixelRatio;
+  final isLargeDisplay = physicalWidth >= 1920 && physicalHeight >= 1080;
+  final isLandscapeTvShape =
+      logicalSize.width > logicalSize.height && logicalSize.shortestSide >= 720;
+  final isControllerOrTvDisplay =
+      navigationMode == NavigationMode.directional || isLandscapeTvShape;
+
+  return isAndroid && isLargeDisplay && isControllerOrTvDisplay;
+}
+
 class _AnimationScreenState extends State<AnimationScreen> {
+  static const int _tvBackgroundCacheSize = 1920;
+  static const int _tvImageCacheEntries = 32;
+  static const int _tvImageCacheBytes = 96 * 1024 * 1024;
+
   final List<FilePair> filePairs = [
     FilePair('fields_day_cloudy_bg.webp', 'fields_day_cloudy_frog.flr'),
     FilePair('fields_day_hazy_bg.webp', 'fields_day_hazy_frog.flr'),
@@ -325,6 +350,20 @@ class _AnimationScreenState extends State<AnimationScreen> {
     setState(() {});
   }
 
+  void _cycleWeather(int direction) {
+    final currentWeatherIndex = weatherOptions.indexWhere(
+      (option) => option.label == selectedWeather,
+    );
+    if (currentWeatherIndex == -1) return;
+
+    final nextWeatherIndex =
+        (currentWeatherIndex + direction + weatherOptions.length) %
+        weatherOptions.length;
+
+    selectedWeather = weatherOptions[nextWeatherIndex].label;
+    _updateSceneFromSelectors();
+  }
+
   void _updateSceneFromSelectors() {
     _recordInteraction();
     final sceneWeather = sceneWeatherForWeather(selectedWeather);
@@ -573,6 +612,41 @@ class _AnimationScreenState extends State<AnimationScreen> {
     return Platform.isAndroid || Platform.isIOS;
   }
 
+  bool _isTvPerformanceMode(BuildContext context) {
+    final forced = widget.forceTvPerformanceMode;
+    if (forced != null) return forced;
+    if (kIsWeb || !Platform.isAndroid) return false;
+
+    final mediaQuery = MediaQuery.of(context);
+    return shouldUseTvPerformanceMode(
+      isAndroid: true,
+      navigationMode: mediaQuery.navigationMode,
+      logicalSize: mediaQuery.size,
+      devicePixelRatio: mediaQuery.devicePixelRatio,
+    );
+  }
+
+  void _configureCaches(bool tvPerformanceMode) {
+    if (!tvPerformanceMode) return;
+
+    final imageCache = PaintingBinding.instance.imageCache;
+    imageCache.maximumSize = _tvImageCacheEntries;
+    imageCache.maximumSizeBytes = _tvImageCacheBytes;
+  }
+
+  void _pruneSceneResources(bool tvPerformanceMode) {
+    final retainRadius = tvPerformanceMode ? 1 : 2;
+    for (var i = 0; i < froggyAnimations.length; i++) {
+      if ((i - currentIndex).abs() > retainRadius) {
+        final animation = froggyAnimations[i];
+        animation.unloadLoadedResources();
+        if (tvPerformanceMode) {
+          unawaited(AssetImage('assets/${animation.backgroundFile}').evict());
+        }
+      }
+    }
+  }
+
   Widget _buildWeatherOverlay(
     String asset, {
     required BoxFit fit,
@@ -595,6 +669,12 @@ class _AnimationScreenState extends State<AnimationScreen> {
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final isPortrait = mediaQuery.orientation == Orientation.portrait;
+    final tvPerformanceMode = _isTvPerformanceMode(context);
+    final backgroundCacheSize = tvPerformanceMode
+        ? _tvBackgroundCacheSize
+        : null;
+
+    _configureCaches(tvPerformanceMode);
 
     // Immersive custom alignment focusing
     final Alignment cameraAlignment = isPortrait
@@ -616,6 +696,21 @@ class _AnimationScreenState extends State<AnimationScreen> {
           if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
               event.logicalKey == LogicalKeyboardKey.keyA) {
             _previousAnimation();
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+              event.logicalKey == LogicalKeyboardKey.keyS) {
+            _cycleWeather(1);
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+              event.logicalKey == LogicalKeyboardKey.keyW) {
+            _cycleWeather(-1);
+            return KeyEventResult.handled;
+          }
+          if (event.logicalKey == LogicalKeyboardKey.contextMenu ||
+              event.logicalKey == LogicalKeyboardKey.keyM) {
+            _showSceneDrawer();
             return KeyEventResult.handled;
           }
           if (event.logicalKey == LogicalKeyboardKey.enter ||
@@ -701,13 +796,17 @@ class _AnimationScreenState extends State<AnimationScreen> {
                         _syncSelectionsToCurrentIndex(index);
                         _recordInteraction();
                       });
+                      _pruneSceneResources(tvPerformanceMode);
                     },
                     itemBuilder: (context, index) {
                       final anim = froggyAnimations[index];
                       final overlayWeather = index == currentIndex
                           ? selectedWeather
                           : parsedScenes[index].weather;
-                      final overlay = overlayForWeather(overlayWeather);
+                      final overlay = overlayForWeather(
+                        overlayWeather,
+                        performanceMode: tvPerformanceMode,
+                      );
 
                       // Interactive scene rendering with Zoom/Pan capabilities
                       final Widget sceneContent = Stack(
@@ -726,6 +825,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
                                     anim.getBackground(
                                       fit: BoxFit.contain,
                                       alignment: Alignment.center,
+                                      cacheWidth: backgroundCacheSize,
+                                      cacheHeight: backgroundCacheSize,
                                     ),
                                     if (overlay?.backgroundAsset != null)
                                       _buildWeatherOverlay(
@@ -751,6 +852,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
                             anim.getBackground(
                               fit: BoxFit.cover,
                               alignment: cameraAlignment,
+                              cacheWidth: backgroundCacheSize,
+                              cacheHeight: backgroundCacheSize,
                             ),
                             if (overlay?.backgroundAsset != null)
                               _buildWeatherOverlay(

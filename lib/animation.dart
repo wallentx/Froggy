@@ -129,6 +129,19 @@ class LoopingFlareController extends FlareController {
 
   @override
   void setViewTransform(Mat2D viewTransform) {}
+
+  void unloadArtboard() {
+    _animation = null;
+    _oneOffAnimation = null;
+    _onOneOffComplete = null;
+    _environmentalAnimations.clear();
+    _envTimes.clear();
+    _artboard = null;
+    _time = 0.0;
+    _oneOffTime = 0.0;
+    durationNotifier.value = null;
+    availableAnimationsNotifier.value = const [];
+  }
 }
 
 class FilePair {
@@ -273,6 +286,8 @@ class FroggyAnimation {
   Widget getBackground({
     BoxFit fit = BoxFit.cover,
     Alignment alignment = Alignment.center,
+    int? cacheWidth,
+    int? cacheHeight,
   }) {
     return Image.asset(
       'assets/$backgroundFile',
@@ -280,6 +295,8 @@ class FroggyAnimation {
       height: double.infinity,
       fit: fit,
       alignment: alignment,
+      cacheWidth: cacheWidth,
+      cacheHeight: cacheHeight,
     );
   }
 
@@ -294,6 +311,15 @@ class FroggyAnimation {
 
   bool triggerReaction(String name, {ui.VoidCallback? onComplete}) {
     return _controller.playOneOff(name, onComplete: onComplete);
+  }
+
+  void unloadLoadedResources() {
+    _pendingCapabilities = null;
+    _capabilitiesNotificationScheduled = false;
+    greetingAnimation = null;
+    loopingAnimations = const [];
+    capabilitiesNotifier.value = AnimationCapabilities.empty;
+    _controller.unloadArtboard();
   }
 
   void dispose() {
