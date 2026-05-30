@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flare_flutter/flare_cache.dart';
 import 'package:lottie/lottie.dart';
 
 import 'animation.dart';
@@ -44,11 +45,84 @@ class ParsedScene {
   });
 }
 
+const Set<String> _sceneTimeTokens = {'morning', 'day', 'sunset', 'night'};
+const Map<String, String> _knownLocationLabels = {
+  'fields': 'Fields',
+  'hill': 'Hills',
+  'mushroom': 'Mushroom',
+};
+
+@visibleForTesting
+String sceneLocationLabelForBackgroundFile(String backgroundFile) {
+  final fileName = backgroundFile.split('/').last;
+  final parts = fileName.split('_');
+  final timeIndex = parts.indexWhere(_sceneTimeTokens.contains);
+  final locationToken = parts.take(timeIndex == -1 ? 1 : timeIndex).join('_');
+
+  return _knownLocationLabels[locationToken] ??
+      _titleCaseLocation(locationToken);
+}
+
+@visibleForTesting
+List<String> locationOptionsForScenes(List<ParsedScene> scenes) {
+  final locations = <String>[];
+  for (final scene in scenes) {
+    if (!locations.contains(scene.location)) {
+      locations.add(scene.location);
+    }
+  }
+  return locations;
+}
+
+@visibleForTesting
+List<String> sceneWeatherOptionsForScenes(List<ParsedScene> scenes) {
+  final weather = {for (final scene in scenes) scene.weather};
+  const preferredOrder = ['Clear', 'Cloudy', 'Hazy', 'Rainy', 'Snowy'];
+
+  return [
+    for (final option in preferredOrder)
+      if (weather.remove(option)) option,
+    ...weather,
+  ];
+}
+
+String _titleCaseLocation(String token) {
+  return token
+      .split('_')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+}
+
+String _tvPerformanceFrogFileForBackgroundFile(String backgroundFile) {
+  final fileName = backgroundFile.split('/').last;
+  final sceneName = fileName.endsWith('_bg.webp')
+      ? fileName.substring(0, fileName.length - '_bg.webp'.length)
+      : fileName;
+  final parts = sceneName.split('_');
+  final timeIndex = parts.indexWhere(_sceneTimeTokens.contains);
+  if (timeIndex != -1 && timeIndex + 1 < parts.length) {
+    parts[timeIndex + 1] = 'sunny';
+  }
+  return '${parts.join('_')}_frog.flr';
+}
+
 class AnimationScreen extends StatefulWidget {
-  const AnimationScreen({super.key, this.forceTvPerformanceMode});
+  const AnimationScreen({
+    super.key,
+    this.forceTvPerformanceMode,
+    this.onGreetingRequestForTesting,
+    this.onBehaviorChangeRequestForTesting,
+  });
 
   @visibleForTesting
   final bool? forceTvPerformanceMode;
+
+  @visibleForTesting
+  final VoidCallback? onGreetingRequestForTesting;
+
+  @visibleForTesting
+  final VoidCallback? onBehaviorChangeRequestForTesting;
 
   @override
   State<AnimationScreen> createState() => _AnimationScreenState();
@@ -72,10 +146,23 @@ bool shouldUseTvPerformanceMode({
   return isAndroid && isLargeDisplay && isControllerOrTvDisplay;
 }
 
+bool _isSelectKey(LogicalKeyboardKey key) {
+  return key == LogicalKeyboardKey.select ||
+      key == LogicalKeyboardKey.enter ||
+      key == LogicalKeyboardKey.numpadEnter;
+}
+
 class _AnimationScreenState extends State<AnimationScreen> {
-  static const int _tvBackgroundCacheSize = 1920;
-  static const int _tvImageCacheEntries = 32;
-  static const int _tvImageCacheBytes = 96 * 1024 * 1024;
+  static const int _tvBackgroundCacheSize = 1280;
+  static const int _tvImageCacheEntries = 16;
+  static const int _tvImageCacheBytes = 48 * 1024 * 1024;
+  static const Duration _defaultFlarePruneDelay = Duration(seconds: 2);
+  static const Duration _tvFlarePruneDelay = Duration.zero;
+  static const Duration _selectLongPressDuration = Duration(milliseconds: 600);
+  static const Duration _selectDoubleClickDuration = Duration(
+    milliseconds: 300,
+  );
+  static const Duration _sceneCrossfadeDuration = Duration(milliseconds: 650);
 
   final List<FilePair> filePairs = [
     FilePair('fields_day_cloudy_bg.webp', 'fields_day_cloudy_frog.flr'),
@@ -178,8 +265,15 @@ class _AnimationScreenState extends State<AnimationScreen> {
   // Ambient & Interaction state
   DateTime _lastInteractionTime = DateTime.now();
   Timer? _ambientTimer;
+  Timer? _selectLongPressTimer;
+  Timer? _selectSingleClickTimer;
+  Timer? _sceneResourcePruneTimer;
   bool _isReacting = false;
+  bool _selectPressed = false;
+  bool _selectLongPressTriggered = false;
+  bool _tvSceneMenuOpen = false;
   final FocusNode _mainFocusNode = FocusNode();
+  bool _tvPerformanceMode = false;
 
   // Category Selector Parsed States
   List<ParsedScene> parsedScenes = [];
@@ -223,6 +317,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
     // Restore default system UI overlay behavior
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     _ambientTimer?.cancel();
+    _selectLongPressTimer?.cancel();
+    _selectSingleClickTimer?.cancel();
+    _sceneResourcePruneTimer?.cancel();
     for (final animation in froggyAnimations) {
       animation.dispose();
     }
@@ -236,9 +333,7 @@ class _AnimationScreenState extends State<AnimationScreen> {
     for (int i = 0; i < filePairs.length; i++) {
       final bg = filePairs[i].backgroundFile;
 
-      String loc = "Fields";
-      if (bg.startsWith('hill_')) loc = "Hills";
-      if (bg.startsWith('mushroom_')) loc = "Mushroom";
+      final loc = sceneLocationLabelForBackgroundFile(bg);
 
       String t = "Day";
       if (bg.contains('_morning_')) t = "Morning";
@@ -260,19 +355,109 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
   void _syncSelectionsToCurrentIndex(int index) {
     final parsed = parsedScenes[index];
-    final nextWeather =
-        sceneWeatherForWeather(selectedWeather) == parsed.weather
-        ? selectedWeather
-        : parsed.weather;
+    final canKeepSelectedWeather =
+        !_tvPerformanceMode &&
+        sceneWeatherForWeather(selectedWeather) == parsed.weather;
+    selectedLocation = parsed.location;
+    selectedTime = parsed.time;
+    selectedWeather = canKeepSelectedWeather ? selectedWeather : parsed.weather;
+  }
+
+  void _setCurrentScene(int index) {
+    currentIndex = index;
+    froggyAnimation =
+        froggyAnimations[_animationIndexForScene(
+          currentIndex,
+          tvPerformanceMode: _tvPerformanceMode,
+        )];
+    _isReacting = false;
+    _syncSelectionsToCurrentIndex(index);
+    _recordInteraction();
+  }
+
+  int _animationIndexForScene(
+    int sceneIndex, {
+    required bool tvPerformanceMode,
+  }) {
+    if (!tvPerformanceMode) return sceneIndex;
+
+    final targetAnimationFile = _tvPerformanceFrogFileForBackgroundFile(
+      filePairs[sceneIndex].backgroundFile,
+    );
+    final targetIndex = filePairs.indexWhere(
+      (pair) => pair.animationFile == targetAnimationFile,
+    );
+    return targetIndex == -1 ? sceneIndex : targetIndex;
+  }
+
+  void _showSingleSceneAtIndex(int index) {
     setState(() {
-      selectedLocation = parsed.location;
-      selectedTime = parsed.time;
-      selectedWeather = nextWeather;
+      _setCurrentScene(index);
+      _transformationController.value = Matrix4.identity();
     });
+    _pruneSceneResourcesAfterTransition();
   }
 
   void _recordInteraction() {
     _lastInteractionTime = DateTime.now();
+  }
+
+  void _pruneSceneResourcesAfterTransition() {
+    _sceneResourcePruneTimer?.cancel();
+    _sceneResourcePruneTimer = Timer(
+      _sceneCrossfadeDuration + const Duration(milliseconds: 100),
+      () {
+        if (!mounted) return;
+        _pruneSceneResources(tvPerformanceMode: true);
+      },
+    );
+  }
+
+  void _handleSelectDown({required bool tvPerformanceMode}) {
+    if (_selectPressed) return;
+
+    _selectPressed = true;
+    _selectLongPressTriggered = false;
+    _selectLongPressTimer?.cancel();
+    _selectLongPressTimer = Timer(_selectLongPressDuration, () {
+      if (!mounted) return;
+
+      _selectPressed = false;
+      _selectLongPressTriggered = true;
+      _selectSingleClickTimer?.cancel();
+      _selectSingleClickTimer = null;
+
+      if (tvPerformanceMode) {
+        _showTvSceneMenu();
+      } else {
+        _showSceneDrawer();
+      }
+    });
+  }
+
+  void _handleSelectUp() {
+    if (!_selectPressed && !_selectLongPressTriggered) return;
+
+    final wasLongPress = _selectLongPressTriggered;
+    _selectPressed = false;
+    _selectLongPressTriggered = false;
+    _selectLongPressTimer?.cancel();
+
+    if (wasLongPress) return;
+
+    final pendingSingleClick = _selectSingleClickTimer;
+    if (pendingSingleClick?.isActive ?? false) {
+      pendingSingleClick!.cancel();
+      _selectSingleClickTimer = null;
+      _cycleLoopAnimation();
+      return;
+    }
+
+    _selectSingleClickTimer = Timer(_selectDoubleClickDuration, () {
+      _selectSingleClickTimer = null;
+      if (!mounted) return;
+      _triggerGreetingReaction();
+    });
   }
 
   void _startAmbientTimer() {
@@ -295,6 +480,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _triggerGreetingReaction() {
+    widget.onGreetingRequestForTesting?.call();
+
     final greetName = froggyAnimation.greetingAnimation;
     if (greetName == null || _isReacting) return;
 
@@ -317,9 +504,14 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _nextAnimation() {
+    final next = (currentIndex + 1) % froggyAnimations.length;
+    if (_tvPerformanceMode) {
+      _showSingleSceneAtIndex(next);
+      return;
+    }
+
     _recordInteraction();
     if (_pageController.hasClients) {
-      int next = (currentIndex + 1) % froggyAnimations.length;
       _pageController.animateToPage(
         next,
         duration: const Duration(milliseconds: 400),
@@ -329,11 +521,15 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _previousAnimation() {
+    final prev =
+        (currentIndex - 1 + froggyAnimations.length) % froggyAnimations.length;
+    if (_tvPerformanceMode) {
+      _showSingleSceneAtIndex(prev);
+      return;
+    }
+
     _recordInteraction();
     if (_pageController.hasClients) {
-      int prev =
-          (currentIndex - 1 + froggyAnimations.length) %
-          froggyAnimations.length;
       _pageController.animateToPage(
         prev,
         duration: const Duration(milliseconds: 400),
@@ -343,6 +539,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _cycleLoopAnimation() {
+    widget.onBehaviorChangeRequestForTesting?.call();
+
     final changed = froggyAnimation.changeAnimation();
     if (!changed) return;
 
@@ -351,16 +549,20 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _cycleWeather(int direction) {
-    final currentWeatherIndex = weatherOptions.indexWhere(
-      (option) => option.label == selectedWeather,
-    );
+    final weatherChoices = _tvPerformanceMode
+        ? sceneWeatherOptionsForScenes(parsedScenes)
+        : [for (final option in weatherOptions) option.label];
+    final currentWeather = _tvPerformanceMode
+        ? sceneWeatherForWeather(selectedWeather)
+        : selectedWeather;
+    final currentWeatherIndex = weatherChoices.indexOf(currentWeather);
     if (currentWeatherIndex == -1) return;
 
     final nextWeatherIndex =
-        (currentWeatherIndex + direction + weatherOptions.length) %
-        weatherOptions.length;
+        (currentWeatherIndex + direction + weatherChoices.length) %
+        weatherChoices.length;
 
-    selectedWeather = weatherOptions[nextWeatherIndex].label;
+    selectedWeather = weatherChoices[nextWeatherIndex];
     _updateSceneFromSelectors();
   }
 
@@ -379,8 +581,11 @@ class _AnimationScreenState extends State<AnimationScreen> {
     if (matchIdx != -1) {
       if (matchIdx == currentIndex) {
         setState(() {});
+      } else if (_tvPerformanceMode) {
+        _showSingleSceneAtIndex(matchIdx);
+      } else {
+        _pageController.jumpToPage(matchIdx);
       }
-      _pageController.jumpToPage(matchIdx);
     } else {
       // Find closest match if combo is not available (e.g. missing bg)
       int closestIdx = parsedScenes.indexWhere(
@@ -400,8 +605,14 @@ class _AnimationScreenState extends State<AnimationScreen> {
       }
 
       if (closestIdx != -1) {
-        _pageController.jumpToPage(closestIdx);
-        _syncSelectionsToCurrentIndex(closestIdx);
+        if (_tvPerformanceMode) {
+          _showSingleSceneAtIndex(closestIdx);
+        } else {
+          _pageController.jumpToPage(closestIdx);
+          setState(() {
+            _syncSelectionsToCurrentIndex(closestIdx);
+          });
+        }
 
         // Show standard glassmorphic alert
         ScaffoldMessenger.of(context).clearSnackBars();
@@ -461,6 +672,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
       builder: (context) {
+        final locationOptions = locationOptionsForScenes(parsedScenes);
+
         return StatefulBuilder(
           builder: (context, setModalState) {
             final sheetMaxHeight = MediaQuery.sizeOf(context).height * 0.86;
@@ -516,9 +729,7 @@ class _AnimationScreenState extends State<AnimationScreen> {
                           SingleChildScrollView(
                             scrollDirection: Axis.horizontal,
                             child: Row(
-                              children: ['Fields', 'Hills', 'Mushroom'].map((
-                                loc,
-                              ) {
+                              children: locationOptions.map((loc) {
                                 return _buildSelectionPill(
                                   label: loc,
                                   selected: selectedLocation == loc,
@@ -606,6 +817,283 @@ class _AnimationScreenState extends State<AnimationScreen> {
     );
   }
 
+  void _showTvSceneMenu() {
+    if (_tvSceneMenuOpen) return;
+
+    _recordInteraction();
+    _tvSceneMenuOpen = true;
+    final locationOptions = locationOptionsForScenes(parsedScenes);
+    final sceneWeatherOptions = sceneWeatherOptionsForScenes(parsedScenes);
+
+    showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'TV Scene Menu',
+      barrierColor: Colors.black.withValues(alpha: 0.22),
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            IconData iconForLocation(String location) {
+              if (location == 'Mushroom') return Icons.home_rounded;
+              if (location == 'Hills') return Icons.terrain_rounded;
+              return Icons.grass_rounded;
+            }
+
+            IconData iconForTime(String time) {
+              return switch (time) {
+                'Morning' => Icons.wb_twilight_rounded,
+                'Sunset' => Icons.nights_stay_rounded,
+                'Night' => Icons.dark_mode_rounded,
+                _ => Icons.wb_sunny_rounded,
+              };
+            }
+
+            IconData iconForWeather(String weather) {
+              return switch (weather) {
+                'Cloudy' => Icons.cloud_rounded,
+                'Hazy' => Icons.blur_on_rounded,
+                'Rainy' => Icons.water_drop_rounded,
+                'Snowy' => Icons.ac_unit_rounded,
+                _ => Icons.wb_sunny_rounded,
+              };
+            }
+
+            Widget buildTile({
+              required String option,
+              required bool selected,
+              required Color activeColor,
+              required IconData icon,
+              required VoidCallback onSelected,
+            }) {
+              return Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: ChoiceChip(
+                  avatar: Icon(
+                    icon,
+                    size: 22,
+                    color: selected ? activeColor : Colors.white60,
+                  ),
+                  label: Text(option),
+                  selected: selected,
+                  selectedColor: activeColor.withValues(alpha: 0.24),
+                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  labelStyle: TextStyle(
+                    color: selected ? activeColor : Colors.white70,
+                    fontSize: 16,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  side: BorderSide(
+                    color: selected
+                        ? activeColor.withValues(alpha: 0.85)
+                        : Colors.white.withValues(alpha: 0.22),
+                    width: selected ? 1.5 : 1,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  onSelected: (_) => onSelected(),
+                ),
+              );
+            }
+
+            Widget buildSection({
+              required String label,
+              required IconData icon,
+              required List<String> options,
+              required String selected,
+              required Color activeColor,
+              required IconData Function(String option) optionIcon,
+              required ValueChanged<String> onSelected,
+            }) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 150,
+                      child: Row(
+                        children: [
+                          Icon(icon, color: activeColor, size: 26),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              label,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: options.map((option) {
+                            return buildTile(
+                              option: option,
+                              selected: selected == option,
+                              activeColor: activeColor,
+                              icon: optionIcon(option),
+                              onSelected: () {
+                                setModalState(() => onSelected(option));
+                                _updateSceneFromSelectors();
+                              },
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Material(
+              type: MaterialType.transparency,
+              child: Focus(
+                autofocus: true,
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent &&
+                      (event.logicalKey == LogicalKeyboardKey.escape ||
+                          event.logicalKey == LogicalKeyboardKey.goBack ||
+                          event.logicalKey == LogicalKeyboardKey.browserBack)) {
+                    Navigator.of(context).pop();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: SafeArea(
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(
+                        top: 54,
+                        left: 48,
+                        right: 48,
+                      ),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1120),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: BackdropFilter(
+                            filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.58),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.14),
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    blurRadius: 28,
+                                    offset: const Offset(0, 18),
+                                  ),
+                                ],
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  26,
+                                  22,
+                                  26,
+                                  18,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'TV Scene Menu',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    buildSection(
+                                      label: 'Location',
+                                      icon: Icons.place_rounded,
+                                      options: locationOptions,
+                                      selected: selectedLocation,
+                                      activeColor: Colors.cyanAccent,
+                                      optionIcon: iconForLocation,
+                                      onSelected: (value) =>
+                                          selectedLocation = value,
+                                    ),
+                                    buildSection(
+                                      label: 'Time',
+                                      icon: Icons.schedule_rounded,
+                                      options: const [
+                                        'Morning',
+                                        'Day',
+                                        'Sunset',
+                                        'Night',
+                                      ],
+                                      selected: selectedTime,
+                                      activeColor: Colors.amberAccent,
+                                      optionIcon: iconForTime,
+                                      onSelected: (value) =>
+                                          selectedTime = value,
+                                    ),
+                                    buildSection(
+                                      label: 'Weather',
+                                      icon: Icons.filter_drama_rounded,
+                                      options: sceneWeatherOptions,
+                                      selected: selectedWeather,
+                                      activeColor: Colors.purpleAccent,
+                                      optionIcon: iconForWeather,
+                                      onSelected: (value) =>
+                                          selectedWeather = value,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, -0.04),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    ).whenComplete(() {
+      _tvSceneMenuOpen = false;
+    });
+  }
+
   // Check if platform is Android or iOS (mobile / TV device)
   bool get _isMobileDevice {
     if (kIsWeb) return false;
@@ -627,6 +1115,10 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _configureCaches(bool tvPerformanceMode) {
+    FlareCache.pruneDelay = tvPerformanceMode
+        ? _tvFlarePruneDelay
+        : _defaultFlarePruneDelay;
+
     if (!tvPerformanceMode) return;
 
     final imageCache = PaintingBinding.instance.imageCache;
@@ -634,16 +1126,32 @@ class _AnimationScreenState extends State<AnimationScreen> {
     imageCache.maximumSizeBytes = _tvImageCacheBytes;
   }
 
-  void _pruneSceneResources(bool tvPerformanceMode) {
-    final retainRadius = tvPerformanceMode ? 1 : 2;
+  void _pruneSceneResources({required bool tvPerformanceMode}) {
+    final retainRadius = tvPerformanceMode ? 0 : 2;
+    final retainedAnimationIndexes = tvPerformanceMode
+        ? {
+            currentIndex,
+            _animationIndexForScene(currentIndex, tvPerformanceMode: true),
+          }
+        : const <int>{};
+
     for (var i = 0; i < froggyAnimations.length; i++) {
-      if ((i - currentIndex).abs() > retainRadius) {
+      final shouldRetain = tvPerformanceMode
+          ? retainedAnimationIndexes.contains(i)
+          : (i - currentIndex).abs() <= retainRadius;
+      if (!shouldRetain) {
         final animation = froggyAnimations[i];
         animation.unloadLoadedResources();
         if (tvPerformanceMode) {
           unawaited(AssetImage('assets/${animation.backgroundFile}').evict());
         }
       }
+    }
+
+    if (tvPerformanceMode) {
+      final imageCache = PaintingBinding.instance.imageCache;
+      imageCache.clear();
+      imageCache.clearLiveImages();
     }
   }
 
@@ -683,6 +1191,106 @@ class _AnimationScreenState extends State<AnimationScreen> {
               : (_cameraFocus == 2 ? Alignment.centerRight : Alignment.center))
         : Alignment.center;
 
+    _tvPerformanceMode = tvPerformanceMode;
+    froggyAnimation =
+        froggyAnimations[_animationIndexForScene(
+          currentIndex,
+          tvPerformanceMode: tvPerformanceMode,
+        )];
+
+    Widget buildScene(int index) {
+      final anim = froggyAnimations[index];
+      final sceneAnimation =
+          froggyAnimations[_animationIndexForScene(
+            index,
+            tvPerformanceMode: tvPerformanceMode,
+          )];
+      final overlayWeather = index == currentIndex
+          ? selectedWeather
+          : parsedScenes[index].weather;
+      final overlay = overlayForWeather(
+        overlayWeather,
+        performanceMode: tvPerformanceMode,
+      );
+
+      final Widget sceneContent = Stack(
+        children: [
+          if (isPortrait && _fitWholeScene) ...[
+            BlurredFitBackground(backgroundFile: anim.backgroundFile),
+            Center(
+              child: AspectRatio(
+                aspectRatio: 1.77,
+                child: Stack(
+                  children: [
+                    anim.getBackground(
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                      cacheWidth: backgroundCacheSize,
+                      cacheHeight: backgroundCacheSize,
+                    ),
+                    if (overlay?.backgroundAsset != null)
+                      _buildWeatherOverlay(
+                        overlay!.backgroundAsset!,
+                        fit: BoxFit.contain,
+                        alignment: Alignment.center,
+                      ),
+                    sceneAnimation.getAnimation(
+                      fit: BoxFit.contain,
+                      alignment: Alignment.center,
+                    ),
+                    if (overlay?.foregroundAsset != null)
+                      _buildWeatherOverlay(
+                        overlay!.foregroundAsset!,
+                        fit: BoxFit.contain,
+                        alignment: Alignment.center,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ] else ...[
+            anim.getBackground(
+              fit: BoxFit.cover,
+              alignment: cameraAlignment,
+              cacheWidth: backgroundCacheSize,
+              cacheHeight: backgroundCacheSize,
+            ),
+            if (overlay?.backgroundAsset != null)
+              _buildWeatherOverlay(
+                overlay!.backgroundAsset!,
+                fit: BoxFit.cover,
+                alignment: cameraAlignment,
+              ),
+            sceneAnimation.getAnimation(
+              fit: BoxFit.cover,
+              alignment: cameraAlignment,
+            ),
+            if (overlay?.foregroundAsset != null)
+              _buildWeatherOverlay(
+                overlay!.foregroundAsset!,
+                fit: BoxFit.cover,
+                alignment: cameraAlignment,
+              ),
+          ],
+        ],
+      );
+
+      return InteractiveViewer(
+        transformationController: _transformationController,
+        panEnabled: _cameraUnlocked,
+        scaleEnabled: _cameraUnlocked,
+        minScale: 1.0,
+        maxScale: 4.0,
+        onInteractionStart: (_) => _recordInteraction(),
+        onInteractionEnd: (details) {
+          if (!_cameraUnlocked) {
+            _transformationController.value = Matrix4.identity();
+          }
+        },
+        child: sceneContent,
+      );
+    }
+
     return Focus(
       focusNode: _mainFocusNode,
       autofocus: true,
@@ -708,17 +1316,14 @@ class _AnimationScreenState extends State<AnimationScreen> {
             _cycleWeather(-1);
             return KeyEventResult.handled;
           }
-          if (event.logicalKey == LogicalKeyboardKey.contextMenu ||
-              event.logicalKey == LogicalKeyboardKey.keyM) {
-            _showSceneDrawer();
+          if (_isSelectKey(event.logicalKey)) {
+            _handleSelectDown(tvPerformanceMode: tvPerformanceMode);
             return KeyEventResult.handled;
           }
-          if (event.logicalKey == LogicalKeyboardKey.enter ||
-              event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.space) {
-            _cycleLoopAnimation();
-            return KeyEventResult.handled;
-          }
+        }
+        if (event is KeyUpEvent && _isSelectKey(event.logicalKey)) {
+          _handleSelectUp();
+          return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
       },
@@ -782,118 +1387,49 @@ class _AnimationScreenState extends State<AnimationScreen> {
                       }
                     }
                   },
-                  child: PageView.builder(
-                    controller: _pageController,
-                    itemCount: froggyAnimations.length,
-                    physics: _cameraUnlocked
-                        ? const NeverScrollableScrollPhysics() // Disable page swiping when panning/zooming
-                        : const BouncingScrollPhysics(),
-                    onPageChanged: (index) {
-                      setState(() {
-                        currentIndex = index;
-                        froggyAnimation = froggyAnimations[currentIndex];
-                        _isReacting = false;
-                        _syncSelectionsToCurrentIndex(index);
-                        _recordInteraction();
-                      });
-                      _pruneSceneResources(tvPerformanceMode);
-                    },
-                    itemBuilder: (context, index) {
-                      final anim = froggyAnimations[index];
-                      final overlayWeather = index == currentIndex
-                          ? selectedWeather
-                          : parsedScenes[index].weather;
-                      final overlay = overlayForWeather(
-                        overlayWeather,
-                        performanceMode: tvPerformanceMode,
-                      );
-
-                      // Interactive scene rendering with Zoom/Pan capabilities
-                      final Widget sceneContent = Stack(
-                        children: [
-                          // Full contain view with blurred background if fit mode active
-                          if (isPortrait && _fitWholeScene) ...[
-                            BlurredFitBackground(
-                              backgroundFile: anim.backgroundFile,
+                  child: tvPerformanceMode
+                      ? AnimatedSwitcher(
+                          duration: _sceneCrossfadeDuration,
+                          switchInCurve: Curves.easeOutCubic,
+                          switchOutCurve: Curves.easeInCubic,
+                          layoutBuilder: (currentChild, previousChildren) {
+                            return Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                ...previousChildren,
+                                if (currentChild != null) currentChild,
+                              ],
+                            );
+                          },
+                          transitionBuilder: (child, animation) {
+                            return FadeTransition(
+                              opacity: animation,
+                              child: child,
+                            );
+                          },
+                          child: KeyedSubtree(
+                            key: ValueKey(
+                              filePairs[currentIndex].backgroundFile,
                             ),
-                            Center(
-                              child: AspectRatio(
-                                aspectRatio:
-                                    1.77, // Fits 16:9 landscape aspect ratio
-                                child: Stack(
-                                  children: [
-                                    anim.getBackground(
-                                      fit: BoxFit.contain,
-                                      alignment: Alignment.center,
-                                      cacheWidth: backgroundCacheSize,
-                                      cacheHeight: backgroundCacheSize,
-                                    ),
-                                    if (overlay?.backgroundAsset != null)
-                                      _buildWeatherOverlay(
-                                        overlay!.backgroundAsset!,
-                                        fit: BoxFit.contain,
-                                        alignment: Alignment.center,
-                                      ),
-                                    anim.getAnimation(
-                                      fit: BoxFit.contain,
-                                      alignment: Alignment.center,
-                                    ),
-                                    if (overlay?.foregroundAsset != null)
-                                      _buildWeatherOverlay(
-                                        overlay!.foregroundAsset!,
-                                        fit: BoxFit.contain,
-                                        alignment: Alignment.center,
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ] else ...[
-                            anim.getBackground(
-                              fit: BoxFit.cover,
-                              alignment: cameraAlignment,
-                              cacheWidth: backgroundCacheSize,
-                              cacheHeight: backgroundCacheSize,
-                            ),
-                            if (overlay?.backgroundAsset != null)
-                              _buildWeatherOverlay(
-                                overlay!.backgroundAsset!,
-                                fit: BoxFit.cover,
-                                alignment: cameraAlignment,
-                              ),
-                            anim.getAnimation(
-                              fit: BoxFit.cover,
-                              alignment: cameraAlignment,
-                            ),
-                            if (overlay?.foregroundAsset != null)
-                              _buildWeatherOverlay(
-                                overlay!.foregroundAsset!,
-                                fit: BoxFit.cover,
-                                alignment: cameraAlignment,
-                              ),
-                          ],
-                        ],
-                      );
-
-                      // InteractiveViewer receives all click drags cleanly now, with no gesture tap conflicts!
-                      return InteractiveViewer(
-                        transformationController: _transformationController,
-                        panEnabled: _cameraUnlocked,
-                        scaleEnabled: _cameraUnlocked,
-                        minScale: 1.0,
-                        maxScale: 4.0,
-                        onInteractionStart: (_) => _recordInteraction(),
-                        onInteractionEnd: (details) {
-                          // Resets to normal if locked or user pinches/zooms out completely
-                          if (!_cameraUnlocked) {
-                            _transformationController.value =
-                                Matrix4.identity();
-                          }
-                        },
-                        child: sceneContent,
-                      );
-                    },
-                  ),
+                            child: buildScene(currentIndex),
+                          ),
+                        )
+                      : PageView.builder(
+                          controller: _pageController,
+                          itemCount: froggyAnimations.length,
+                          physics: _cameraUnlocked
+                              ? const NeverScrollableScrollPhysics()
+                              : const BouncingScrollPhysics(),
+                          onPageChanged: (index) {
+                            setState(() {
+                              _setCurrentScene(index);
+                            });
+                            _pruneSceneResources(
+                              tvPerformanceMode: tvPerformanceMode,
+                            );
+                          },
+                          itemBuilder: (context, index) => buildScene(index),
+                        ),
                 ),
               ),
 
@@ -987,204 +1523,211 @@ class _AnimationScreenState extends State<AnimationScreen> {
                 ),
 
               // Premium Glassmorphic Bottom Navigation & Control HUD
-              Positioned(
-                bottom: 24,
-                left: 20,
-                right: 20,
-                child: IgnorePointer(
-                  ignoring: !_showHUD,
-                  child: AnimatedOpacity(
-                    opacity: _showHUD ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 250),
-                    child: Center(
-                      child: GestureDetector(
-                        onTap:
-                            () {}, // Swallows taps to prevent toggling the HUD when clicking controls
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(28),
-                          child: BackdropFilter(
-                            filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
+              if (!tvPerformanceMode)
+                Positioned(
+                  bottom: 24,
+                  left: 20,
+                  right: 20,
+                  child: IgnorePointer(
+                    ignoring: !_showHUD,
+                    child: AnimatedOpacity(
+                      opacity: _showHUD ? 1.0 : 0.0,
+                      duration: const Duration(milliseconds: 250),
+                      child: Center(
+                        child: GestureDetector(
+                          onTap:
+                              () {}, // Swallows taps to prevent toggling the HUD when clicking controls
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(28),
+                            child: BackdropFilter(
+                              filter: ui.ImageFilter.blur(
+                                sigmaX: 12,
+                                sigmaY: 12,
                               ),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(28),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.12),
-                                  width: 1,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
                                 ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  // Previous Button
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.chevron_left,
-                                      color: Colors.white70,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  borderRadius: BorderRadius.circular(28),
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    // Previous Button
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.chevron_left,
+                                        color: Colors.white70,
+                                      ),
+                                      onPressed: _previousAnimation,
+                                      tooltip: 'Previous Scene',
                                     ),
-                                    onPressed: _previousAnimation,
-                                    tooltip: 'Previous Scene',
-                                  ),
-                                  const SizedBox(width: 4),
-
-                                  // Open 3-Row Segmented Scene Selector Drawer
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.tune,
-                                      color: Colors.white,
-                                    ),
-                                    onPressed: _showSceneDrawer,
-                                    tooltip: 'Weather Scenes',
-                                  ),
-                                  const SizedBox(width: 4),
-
-                                  ValueListenableBuilder<AnimationCapabilities>(
-                                    valueListenable:
-                                        froggyAnimation.capabilitiesNotifier,
-                                    builder: (context, capabilities, _) {
-                                      final canTriggerGreeting =
-                                          capabilities.canTriggerGreeting;
-                                      final canChangeBehavior =
-                                          capabilities.canChangeBehavior;
-                                      final canPressGreeting =
-                                          canTriggerGreeting && !_isReacting;
-
-                                      return Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          // Trigger Waving / Greeting Reactive Animation.
-                                          IconButton(
-                                            icon: Icon(
-                                              _isReacting
-                                                  ? Icons.hourglass_empty
-                                                  : Icons.front_hand,
-                                              color: canTriggerGreeting
-                                                  ? (_isReacting
-                                                        ? Colors.yellowAccent
-                                                        : Colors.tealAccent)
-                                                  : Colors.white24,
-                                            ),
-                                            onPressed: canPressGreeting
-                                                ? () {
-                                                    _recordInteraction();
-                                                    _triggerGreetingReaction();
-                                                  }
-                                                : null,
-                                            tooltip: canTriggerGreeting
-                                                ? 'Interact / Say Hello'
-                                                : 'No hello animation',
-                                          ),
-                                          const SizedBox(width: 4),
-
-                                          // Cycle alternate frog behavior loops.
-                                          IconButton(
-                                            icon: Icon(
-                                              Icons.directions_run,
-                                              color: canChangeBehavior
-                                                  ? Colors.amberAccent
-                                                  : Colors.white24,
-                                            ),
-                                            onPressed: canChangeBehavior
-                                                ? _cycleLoopAnimation
-                                                : null,
-                                            tooltip: canChangeBehavior
-                                                ? 'Change Behavior'
-                                                : 'No alternate behavior',
-                                          ),
-                                          const SizedBox(width: 4),
-                                        ],
-                                      );
-                                    },
-                                  ),
-
-                                  // Interactive Zoom & Pan Camera Toggle
-                                  IconButton(
-                                    icon: Icon(
-                                      _cameraUnlocked
-                                          ? Icons.zoom_in
-                                          : Icons.zoom_out,
-                                      color: _cameraUnlocked
-                                          ? Colors.lightBlueAccent
-                                          : Colors.white54,
-                                    ),
-                                    onPressed: () {
-                                      _recordInteraction();
-                                      setState(() {
-                                        _cameraUnlocked = !_cameraUnlocked;
-                                        if (!_cameraUnlocked) {
-                                          _transformationController.value =
-                                              Matrix4.identity();
-                                        }
-                                      });
-                                    },
-                                    tooltip: _cameraUnlocked
-                                        ? 'Lock Camera'
-                                        : 'Unlock Camera',
-                                  ),
-
-                                  // Portrait-specific controls
-                                  if (isPortrait) ...[
                                     const SizedBox(width: 4),
-                                    // Toggle between Cover (Immersive) and Contain (Fit Scene)
+
+                                    // Open 3-Row Segmented Scene Selector Drawer
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.tune,
+                                        color: Colors.white,
+                                      ),
+                                      onPressed: _showSceneDrawer,
+                                      tooltip: 'Weather Scenes',
+                                    ),
+                                    const SizedBox(width: 4),
+
+                                    ValueListenableBuilder<
+                                      AnimationCapabilities
+                                    >(
+                                      valueListenable:
+                                          froggyAnimation.capabilitiesNotifier,
+                                      builder: (context, capabilities, _) {
+                                        final canTriggerGreeting =
+                                            capabilities.canTriggerGreeting;
+                                        final canChangeBehavior =
+                                            capabilities.canChangeBehavior;
+                                        final canPressGreeting =
+                                            canTriggerGreeting && !_isReacting;
+
+                                        return Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            // Trigger Waving / Greeting Reactive Animation.
+                                            IconButton(
+                                              icon: Icon(
+                                                _isReacting
+                                                    ? Icons.hourglass_empty
+                                                    : Icons.front_hand,
+                                                color: canTriggerGreeting
+                                                    ? (_isReacting
+                                                          ? Colors.yellowAccent
+                                                          : Colors.tealAccent)
+                                                    : Colors.white24,
+                                              ),
+                                              onPressed: canPressGreeting
+                                                  ? () {
+                                                      _recordInteraction();
+                                                      _triggerGreetingReaction();
+                                                    }
+                                                  : null,
+                                              tooltip: canTriggerGreeting
+                                                  ? 'Interact / Say Hello'
+                                                  : 'No hello animation',
+                                            ),
+                                            const SizedBox(width: 4),
+
+                                            // Cycle alternate frog behavior loops.
+                                            IconButton(
+                                              icon: Icon(
+                                                Icons.directions_run,
+                                                color: canChangeBehavior
+                                                    ? Colors.amberAccent
+                                                    : Colors.white24,
+                                              ),
+                                              onPressed: canChangeBehavior
+                                                  ? _cycleLoopAnimation
+                                                  : null,
+                                              tooltip: canChangeBehavior
+                                                  ? 'Change Behavior'
+                                                  : 'No alternate behavior',
+                                            ),
+                                            const SizedBox(width: 4),
+                                          ],
+                                        );
+                                      },
+                                    ),
+
+                                    // Interactive Zoom & Pan Camera Toggle
                                     IconButton(
                                       icon: Icon(
-                                        _fitWholeScene
-                                            ? Icons.fullscreen_exit
-                                            : Icons.fullscreen,
-                                        color: Colors.greenAccent,
+                                        _cameraUnlocked
+                                            ? Icons.zoom_in
+                                            : Icons.zoom_out,
+                                        color: _cameraUnlocked
+                                            ? Colors.lightBlueAccent
+                                            : Colors.white54,
                                       ),
                                       onPressed: () {
                                         _recordInteraction();
                                         setState(() {
-                                          _fitWholeScene = !_fitWholeScene;
+                                          _cameraUnlocked = !_cameraUnlocked;
+                                          if (!_cameraUnlocked) {
+                                            _transformationController.value =
+                                                Matrix4.identity();
+                                          }
                                         });
                                       },
-                                      tooltip: _fitWholeScene
-                                          ? 'Immersive View'
-                                          : 'Show Full Scene',
+                                      tooltip: _cameraUnlocked
+                                          ? 'Lock Camera'
+                                          : 'Unlock Camera',
                                     ),
-                                    if (!_fitWholeScene) ...[
+
+                                    // Portrait-specific controls
+                                    if (isPortrait) ...[
                                       const SizedBox(width: 4),
-                                      // Focus Horizontal Camera cycle (Left, Center, Right)
+                                      // Toggle between Cover (Immersive) and Contain (Fit Scene)
                                       IconButton(
                                         icon: Icon(
-                                          _cameraFocus == 0
-                                              ? Icons.align_horizontal_left
-                                              : (_cameraFocus == 2
-                                                    ? Icons
-                                                          .align_horizontal_right
-                                                    : Icons
-                                                          .align_horizontal_center),
-                                          color: Colors.purpleAccent,
+                                          _fitWholeScene
+                                              ? Icons.fullscreen_exit
+                                              : Icons.fullscreen,
+                                          color: Colors.greenAccent,
                                         ),
                                         onPressed: () {
                                           _recordInteraction();
                                           setState(() {
-                                            _cameraFocus =
-                                                (_cameraFocus + 1) % 3;
+                                            _fitWholeScene = !_fitWholeScene;
                                           });
                                         },
-                                        tooltip: 'Camera Focus',
+                                        tooltip: _fitWholeScene
+                                            ? 'Immersive View'
+                                            : 'Show Full Scene',
                                       ),
+                                      if (!_fitWholeScene) ...[
+                                        const SizedBox(width: 4),
+                                        // Focus Horizontal Camera cycle (Left, Center, Right)
+                                        IconButton(
+                                          icon: Icon(
+                                            _cameraFocus == 0
+                                                ? Icons.align_horizontal_left
+                                                : (_cameraFocus == 2
+                                                      ? Icons
+                                                            .align_horizontal_right
+                                                      : Icons
+                                                            .align_horizontal_center),
+                                            color: Colors.purpleAccent,
+                                          ),
+                                          onPressed: () {
+                                            _recordInteraction();
+                                            setState(() {
+                                              _cameraFocus =
+                                                  (_cameraFocus + 1) % 3;
+                                            });
+                                          },
+                                          tooltip: 'Camera Focus',
+                                        ),
+                                      ],
                                     ],
-                                  ],
 
-                                  const SizedBox(width: 4),
-                                  // Next Button
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.chevron_right,
-                                      color: Colors.white70,
+                                    const SizedBox(width: 4),
+                                    // Next Button
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.chevron_right,
+                                        color: Colors.white70,
+                                      ),
+                                      onPressed: _nextAnimation,
+                                      tooltip: 'Next Scene',
                                     ),
-                                    onPressed: _nextAnimation,
-                                    tooltip: 'Next Scene',
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -1193,7 +1736,6 @@ class _AnimationScreenState extends State<AnimationScreen> {
                     ),
                   ),
                 ),
-              ),
             ],
           ),
         ),

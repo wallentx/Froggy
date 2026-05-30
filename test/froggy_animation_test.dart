@@ -107,4 +107,30 @@ void main() {
     expect(animation.controller.availableAnimations, isEmpty);
     expect(animation.controller.duration, isNull);
   });
+
+  testWidgets('changing behavior waits for the current loop boundary', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const SizedBox.shrink());
+
+    final animation = FroggyAnimation(
+      backgroundFile: 'fields_day_cloudy_bg.webp',
+      animationFile: 'fields_day_cloudy_frog.flr',
+    );
+    addTearDown(animation.dispose);
+
+    animation.controller.availableAnimationsNotifier.value = [
+      'Hero-Action',
+      'Sub-Action 01',
+    ];
+
+    await tester.pump(const Duration(milliseconds: 1));
+
+    expect(animation.changeAnimation(), isTrue);
+    expect(animation.currentAnimation, 'Hero-Action');
+
+    animation.controller.applyQueuedBaseAnimationForTesting();
+
+    expect(animation.currentAnimation, 'Sub-Action 01');
+  });
 }

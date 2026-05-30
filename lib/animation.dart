@@ -29,6 +29,11 @@ class LoopingFlareController extends FlareController {
   // Track the artboard for dynamic one-off requests later
   FlutterActorArtboard? _artboard;
 
+  String? _queuedBaseAnimation;
+  ui.VoidCallback? _onQueuedBaseAnimationApplied;
+  String? _queuedOneOffAnimationName;
+  ui.VoidCallback? _onQueuedOneOffComplete;
+
   LoopingFlareController(this.animationName);
 
   double? get duration => durationNotifier.value;
@@ -72,6 +77,14 @@ class LoopingFlareController extends FlareController {
     _time = 0.0;
   }
 
+  bool queueBaseAnimation(String name, {ui.VoidCallback? onApplied}) {
+    if (_queuedBaseAnimation != null || name == animationName) return false;
+
+    _queuedBaseAnimation = name;
+    _onQueuedBaseAnimationApplied = onApplied;
+    return true;
+  }
+
   // Requests playing a one-off animation (like a wave/reaction)
   bool playOneOff(String name, {ui.VoidCallback? onComplete}) {
     final artboard = _artboard;
@@ -85,6 +98,20 @@ class LoopingFlareController extends FlareController {
       return true;
     }
     return false;
+  }
+
+  bool queueOneOff(String name, {ui.VoidCallback? onComplete}) {
+    final artboard = _artboard;
+    if (artboard == null || artboard.getAnimation(name) == null) {
+      return false;
+    }
+    if (_oneOffAnimation != null || _queuedOneOffAnimationName != null) {
+      return false;
+    }
+
+    _queuedOneOffAnimationName = name;
+    _onQueuedOneOffComplete = onComplete;
+    return true;
   }
 
   @override
@@ -104,9 +131,16 @@ class LoopingFlareController extends FlareController {
       if (durationNotifier.value == null) {
         durationNotifier.value = _animation!.duration;
       }
-      _time += elapsed;
-      _time %= _animation!.duration;
+      final duration = _animation!.duration;
+      final nextTime = _time + elapsed;
+      final completedLoop = duration > 0 && nextTime >= duration;
+      _time = duration > 0 ? nextTime % duration : 0.0;
       _animation!.apply(_time, artboard, 1.0);
+
+      if (completedLoop) {
+        _applyQueuedBaseAnimation();
+        _startQueuedOneOff();
+      }
     }
 
     // 3. If a one-off greeting reaction is active, overlay it with mix 1.0
@@ -130,10 +164,41 @@ class LoopingFlareController extends FlareController {
   @override
   void setViewTransform(Mat2D viewTransform) {}
 
+  bool _applyQueuedBaseAnimation() {
+    final queuedName = _queuedBaseAnimation;
+    if (queuedName == null) return false;
+
+    final onApplied = _onQueuedBaseAnimationApplied;
+    _queuedBaseAnimation = null;
+    _onQueuedBaseAnimationApplied = null;
+
+    setBaseAnimation(queuedName);
+    onApplied?.call();
+    return true;
+  }
+
+  bool _startQueuedOneOff() {
+    final queuedName = _queuedOneOffAnimationName;
+    if (queuedName == null) return false;
+
+    final onComplete = _onQueuedOneOffComplete;
+    _queuedOneOffAnimationName = null;
+    _onQueuedOneOffComplete = null;
+
+    return playOneOff(queuedName, onComplete: onComplete);
+  }
+
+  @visibleForTesting
+  bool applyQueuedBaseAnimationForTesting() => _applyQueuedBaseAnimation();
+
   void unloadArtboard() {
     _animation = null;
     _oneOffAnimation = null;
     _onOneOffComplete = null;
+    _queuedBaseAnimation = null;
+    _onQueuedBaseAnimationApplied = null;
+    _queuedOneOffAnimationName = null;
+    _onQueuedOneOffComplete = null;
     _environmentalAnimations.clear();
     _envTimes.clear();
     _artboard = null;
@@ -304,13 +369,15 @@ class FroggyAnimation {
     if (!canChangeBehavior) return false;
     int index = loopingAnimations.indexOf(currentAnimation);
     index = (index + 1) % loopingAnimations.length;
-    currentAnimation = loopingAnimations[index];
-    _controller.setBaseAnimation(currentAnimation);
-    return true;
+    final nextAnimation = loopingAnimations[index];
+    return _controller.queueBaseAnimation(
+      nextAnimation,
+      onApplied: () => currentAnimation = nextAnimation,
+    );
   }
 
   bool triggerReaction(String name, {ui.VoidCallback? onComplete}) {
-    return _controller.playOneOff(name, onComplete: onComplete);
+    return _controller.queueOneOff(name, onComplete: onComplete);
   }
 
   void unloadLoadedResources() {

@@ -177,14 +177,7 @@ WeatherOverlay? overlayForWeather(
   final overlay = _weatherOptionForWeather(weather)?.overlay;
   if (overlay == null || !performanceMode) return overlay;
 
-  if (_disabledPerformanceOverlayWeather.contains(weather)) {
-    return const WeatherOverlay(backgroundAsset: null, foregroundAsset: null);
-  }
-
-  return WeatherOverlay(
-    backgroundAsset: null,
-    foregroundAsset: overlay.foregroundAsset,
-  );
+  return const WeatherOverlay(backgroundAsset: null, foregroundAsset: null);
 }
 
 String sceneWeatherForWeather(String weather) {
@@ -197,14 +190,3 @@ WeatherOption? _weatherOptionForWeather(String weather) {
   }
   return null;
 }
-
-const Set<String> _disabledPerformanceOverlayWeather = {
-  'Storms',
-  'Rain/Hail',
-  'Snowy',
-  'Flurries',
-  'Scattered Snow',
-  'Heavy Snow',
-  'Blowing Snow',
-  'Blizzard',
-};

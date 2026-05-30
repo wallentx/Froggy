@@ -113,33 +113,13 @@ void main() {
     expect(overlayForWeather('Foggy'), isNull);
   });
 
-  test(
-    'tv performance overlays avoid expensive full-screen weather layers',
-    () {
-      const basePath = 'assets/animated_weather/tablet';
-
+  test('tv performance overlays disable weather Lottie layers', () {
+    for (final option in weatherOptions) {
       expect(
-        overlayForWeather('Cloudy', performanceMode: true),
-        const WeatherOverlay(
-          backgroundAsset: null,
-          foregroundAsset: '$basePath/mostly_cloudy_foreground.json',
-        ),
-      );
-      expect(
-        overlayForWeather('Rainy', performanceMode: true),
-        const WeatherOverlay(
-          backgroundAsset: null,
-          foregroundAsset: '$basePath/showers_rain_foreground.json',
-        ),
-      );
-      expect(
-        overlayForWeather('Heavy Snow', performanceMode: true),
+        overlayForWeather(option.label, performanceMode: true),
         const WeatherOverlay(backgroundAsset: null, foregroundAsset: null),
+        reason: option.label,
       );
-      expect(
-        overlayForWeather('Blizzard', performanceMode: true),
-        const WeatherOverlay(backgroundAsset: null, foregroundAsset: null),
-      );
-    },
-  );
+    }
+  });
 }
