@@ -235,38 +235,33 @@ void main() {
     },
   );
 
-  testWidgets(
-    'android tv performance mode reuses clear frog asset across weather scenes',
-    (tester) async {
-      tester.view.physicalSize = const Size(3840, 2160);
-      tester.view.devicePixelRatio = 2.0;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
+  testWidgets('android tv performance mode uses weather-matched frog assets', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(
-        const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
-      );
-      await tester.pump();
+    await tester.pumpWidget(
+      const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+    );
+    await tester.pump();
 
-      expect(_sceneBackgroundAssetNames(tester), [
-        'assets/fields_day_cloudy_bg.webp',
-      ]);
-      expect(_flareActorFilenames(tester), [
-        'assets/fields_day_sunny_frog.flr',
-      ]);
+    expect(_sceneBackgroundAssetNames(tester), [
+      'assets/fields_day_cloudy_bg.webp',
+    ]);
+    expect(_flareActorFilenames(tester), ['assets/fields_day_cloudy_frog.flr']);
 
-      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 750));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 750));
 
-      expect(_sceneBackgroundAssetNames(tester), [
-        'assets/fields_day_hazy_bg.webp',
-      ]);
-      expect(_flareActorFilenames(tester), [
-        'assets/fields_day_sunny_frog.flr',
-      ]);
-    },
-  );
+    expect(_sceneBackgroundAssetNames(tester), [
+      'assets/fields_day_hazy_bg.webp',
+    ]);
+    expect(_flareActorFilenames(tester), ['assets/fields_day_hazy_frog.flr']);
+  });
 
   testWidgets(
     'android tv performance mode avoids broken home day and sunset frog assets',
@@ -284,6 +279,17 @@ void main() {
       await _openTvMenu(tester);
       await tester.tap(find.byKey(const ValueKey('tv-menu-Home-option')));
       await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('tv-menu-Hazy-option')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(_sceneBackgroundAssetNames(tester), [
+        'assets/mushroom_day_hazy_bg.webp',
+      ]);
+      expect(_flareActorFilenames(tester), [
+        'assets/mushroom_day_hazy_frog.flr',
+      ]);
+
       await tester.tap(find.byKey(const ValueKey('tv-menu-Clear-option')));
       await tester.pump();
       await tester.pump();

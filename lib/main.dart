@@ -109,11 +109,14 @@ String _tvPerformanceFrogFileForBackgroundFile(String backgroundFile) {
   if (timeIndex != -1 && timeIndex + 1 < parts.length) {
     final locationToken = parts.take(timeIndex).join('_');
     final timeToken = parts[timeIndex];
-    final isBrokenHomePerformanceScene =
+    final isBrokenHomeClearPerformanceScene =
         locationToken == 'mushroom' &&
-        (timeToken == 'day' || timeToken == 'sunset');
+        (timeToken == 'day' || timeToken == 'sunset') &&
+        parts[timeIndex + 1] == 'sunny';
 
-    parts[timeIndex + 1] = isBrokenHomePerformanceScene ? 'cloudy' : 'sunny';
+    if (isBrokenHomeClearPerformanceScene) {
+      parts[timeIndex + 1] = 'cloudy';
+    }
   }
   return '${parts.join('_')}_frog.flr';
 }
