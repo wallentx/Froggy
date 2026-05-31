@@ -264,7 +264,7 @@ void main() {
   });
 
   testWidgets(
-    'android tv performance mode avoids broken home day and sunset frog assets',
+    'android tv performance mode keeps home clear frog assets weather matched',
     (tester) async {
       tester.view.physicalSize = const Size(3840, 2160);
       tester.view.devicePixelRatio = 2.0;
@@ -298,7 +298,7 @@ void main() {
         'assets/mushroom_day_sunny_bg.webp',
       ]);
       expect(_flareActorFilenames(tester), [
-        'assets/mushroom_day_cloudy_frog.flr',
+        'assets/mushroom_day_sunny_frog.flr',
       ]);
 
       await tester.tap(find.byKey(const ValueKey('tv-menu-Sunset-option')));
@@ -309,10 +309,26 @@ void main() {
         'assets/mushroom_sunset_sunny_bg.webp',
       ]);
       expect(_flareActorFilenames(tester), [
-        'assets/mushroom_sunset_cloudy_frog.flr',
+        'assets/mushroom_sunset_sunny_frog.flr',
       ]);
     },
   );
+
+  testWidgets('android tv performance mode disables flare antialiasing', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+    );
+    await tester.pump();
+
+    expect(_flareActorAntialiasValues(tester), [false]);
+  });
 
   testWidgets(
     'android tv performance mode clears image cache on scene changes',
@@ -764,6 +780,13 @@ List<String> _flareActorFilenames(WidgetTester tester) {
       .widgetList<FlareActor>(find.byType(FlareActor))
       .map((widget) => widget.filename)
       .whereType<String>()
+      .toList();
+}
+
+List<bool> _flareActorAntialiasValues(WidgetTester tester) {
+  return tester
+      .widgetList<FlareActor>(find.byType(FlareActor))
+      .map((widget) => widget.antialias)
       .toList();
 }
 

@@ -332,6 +332,7 @@ class FroggyAnimation {
   Widget getAnimation({
     BoxFit fit = BoxFit.cover,
     Alignment alignment = Alignment.center,
+    bool antialias = true,
   }) {
     return SizedBox(
       key: ValueKey(animationFile),
@@ -344,6 +345,7 @@ class FroggyAnimation {
         animation: currentAnimation,
         controller: _controller,
         isPaused: false,
+        antialias: antialias,
       ),
     );
   }

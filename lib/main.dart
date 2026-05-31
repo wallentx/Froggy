@@ -104,21 +104,7 @@ String _tvPerformanceFrogFileForBackgroundFile(String backgroundFile) {
   final sceneName = fileName.endsWith('_bg.webp')
       ? fileName.substring(0, fileName.length - '_bg.webp'.length)
       : fileName;
-  final parts = sceneName.split('_');
-  final timeIndex = parts.indexWhere(_sceneTimeTokens.contains);
-  if (timeIndex != -1 && timeIndex + 1 < parts.length) {
-    final locationToken = parts.take(timeIndex).join('_');
-    final timeToken = parts[timeIndex];
-    final isBrokenHomeClearPerformanceScene =
-        locationToken == 'mushroom' &&
-        (timeToken == 'day' || timeToken == 'sunset') &&
-        parts[timeIndex + 1] == 'sunny';
-
-    if (isBrokenHomeClearPerformanceScene) {
-      parts[timeIndex + 1] = 'cloudy';
-    }
-  }
-  return '${parts.join('_')}_frog.flr';
+  return '${sceneName}_frog.flr';
 }
 
 class AnimationScreen extends StatefulWidget {
@@ -1655,6 +1641,7 @@ class _AnimationScreenState extends State<AnimationScreen>
                     sceneAnimation.getAnimation(
                       fit: BoxFit.contain,
                       alignment: Alignment.center,
+                      antialias: !tvPerformanceMode,
                     ),
                     if (overlay?.foregroundAsset != null)
                       _buildWeatherOverlay(
@@ -1682,6 +1669,7 @@ class _AnimationScreenState extends State<AnimationScreen>
             sceneAnimation.getAnimation(
               fit: BoxFit.cover,
               alignment: cameraAlignment,
+              antialias: !tvPerformanceMode,
             ),
             if (overlay?.foregroundAsset != null)
               _buildWeatherOverlay(

@@ -101,9 +101,9 @@ packages:
     dependency: "direct main"
     description:
       path: flare_flutter
-      ref: remove_hashValues
-      resolved-ref: d915c89bf01f1a9d5c97d9f5b2f964eb21ddf1e9
-      url: "https://github.com/mbfakourii/Flare-Flutter.git"
+      ref: dev
+      resolved-ref: "19d60fd4515444587b091a823ed9e3fb6f4d808c"
+      url: "https://github.com/wallentx/Flare-Flutter.git"
     source: git
     version: "3.0.2"
   flutter:
