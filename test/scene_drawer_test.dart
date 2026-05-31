@@ -21,7 +21,7 @@ void main() {
     );
     expect(
       sceneLocationLabelForBackgroundFile('mushroom_day_sunny_bg.webp'),
-      'Mushroom',
+      'Home',
     );
     expect(
       sceneLocationLabelForBackgroundFile('city_park_day_sunny_bg.webp'),
@@ -85,7 +85,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const MyApp());
+      await tester.pumpWidget(const MyApp(randomizeInitialScene: false));
       await tester.pump();
 
       await tester.tap(find.byTooltip('Weather Scenes'));
@@ -113,7 +113,7 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
-      await tester.pumpWidget(const MyApp());
+      await tester.pumpWidget(const MyApp(randomizeInitialScene: false));
       await tester.pump();
 
       await tester.tap(find.byTooltip('Weather Scenes'));
@@ -147,7 +147,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(const MyApp());
+    await tester.pumpWidget(const MyApp(randomizeInitialScene: false));
     await tester.pump();
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
@@ -269,6 +269,46 @@ void main() {
   );
 
   testWidgets(
+    'android tv performance mode avoids broken home day and sunset frog assets',
+    (tester) async {
+      tester.view.physicalSize = const Size(3840, 2160);
+      tester.view.devicePixelRatio = 2.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+      );
+      await tester.pump();
+
+      await _openTvMenu(tester);
+      await tester.tap(find.byKey(const ValueKey('tv-menu-Home-option')));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('tv-menu-Clear-option')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(_sceneBackgroundAssetNames(tester), [
+        'assets/mushroom_day_sunny_bg.webp',
+      ]);
+      expect(_flareActorFilenames(tester), [
+        'assets/mushroom_day_cloudy_frog.flr',
+      ]);
+
+      await tester.tap(find.byKey(const ValueKey('tv-menu-Sunset-option')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(_sceneBackgroundAssetNames(tester), [
+        'assets/mushroom_sunset_sunny_bg.webp',
+      ]);
+      expect(_flareActorFilenames(tester), [
+        'assets/mushroom_sunset_cloudy_frog.flr',
+      ]);
+    },
+  );
+
+  testWidgets(
     'android tv performance mode clears image cache on scene changes',
     (tester) async {
       tester.view.physicalSize = const Size(3840, 2160);
@@ -321,21 +361,42 @@ void main() {
       expect(find.text('TV Scene Menu'), findsOneWidget);
       expect(find.text('Customize Weather Scene'), findsNothing);
       expect(find.text('Scenes'), findsNothing);
-      expect(find.widgetWithText(ChoiceChip, 'Fields'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Hills'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Mushroom'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Clear'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Cloudy'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Rainy'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Snowy'), findsOneWidget);
-      expect(find.widgetWithText(ChoiceChip, 'Mostly Sunny'), findsNothing);
-      expect(find.widgetWithText(ChoiceChip, 'Blizzard'), findsNothing);
-      expect(
-        find.widgetWithText(ChoiceChip, 'Fields - Day - Cloudy'),
-        findsNothing,
-      );
+      expect(find.text('Fields'), findsOneWidget);
+      expect(find.text('Hills'), findsOneWidget);
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Mushroom'), findsNothing);
+      expect(find.text('Clear'), findsOneWidget);
+      expect(find.text('Cloudy'), findsOneWidget);
+      expect(find.text('Rainy'), findsOneWidget);
+      expect(find.text('Snowy'), findsOneWidget);
+      expect(find.text('Mostly Sunny'), findsNothing);
+      expect(find.text('Blizzard'), findsNothing);
+      expect(find.text('Fields - Day - Cloudy'), findsNothing);
     },
   );
+
+  testWidgets('android tv menu exposes auto cycle controls', (tester) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+    );
+    await tester.pump();
+
+    await _openTvMenu(tester);
+
+    expect(find.text('Auto'), findsOneWidget);
+    expect(find.text('Every'), findsOneWidget);
+    expect(find.text('Off'), findsOneWidget);
+    expect(find.text('Behavior'), findsOneWidget);
+    expect(find.text('Both'), findsOneWidget);
+    expect(find.text('2 min'), findsOneWidget);
+    expect(find.text('5 min'), findsOneWidget);
+    expect(find.text('10 min'), findsOneWidget);
+  });
 
   testWidgets('android tv menu opens with long select press only', (
     tester,
@@ -369,7 +430,7 @@ void main() {
     expect(find.text('TV Scene Menu'), findsNothing);
   });
 
-  testWidgets('android tv scene changes are crossfaded', (tester) async {
+  testWidgets('android tv menu opens from select key repeat', (tester) async {
     tester.view.physicalSize = const Size(3840, 2160);
     tester.view.devicePixelRatio = 2.0;
     addTearDown(tester.view.resetPhysicalSize);
@@ -380,18 +441,107 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(AnimatedSwitcher), findsOneWidget);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.select);
+    await tester.sendKeyRepeatEvent(LogicalKeyboardKey.select);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('TV Scene Menu'), findsOneWidget);
+  });
+
+  testWidgets('android tv menu handles d-pad selection and back dismissal', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+    );
+    await tester.pump();
+
+    await _openTvMenu(tester);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    expect(find.byKey(const ValueKey('tv-menu-Hills-focused')), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+    expect(
+      _sceneBackgroundAssetNames(tester),
+      contains('assets/hill_day_cloudy_bg.webp'),
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('TV Scene Menu'), findsNothing);
+    expect(find.byType(AnimationScreen), findsOneWidget);
+  });
+
+  testWidgets('android tv scene changes unload old scene before loading next', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+    );
+    await tester.pump();
+
+    await _openTvMenu(tester);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.select);
     await tester.pump();
 
     expect(
       _sceneBackgroundAssetNames(tester),
-      containsAll([
-        'assets/fields_day_cloudy_bg.webp',
-        'assets/fields_day_hazy_bg.webp',
-      ]),
+      isNot(contains('assets/fields_day_cloudy_bg.webp')),
     );
+    expect(
+      _sceneBackgroundAssetNames(tester),
+      isNot(contains('assets/hill_day_cloudy_bg.webp')),
+    );
+
+    await tester.pump();
+
+    expect(
+      _sceneBackgroundAssetNames(tester),
+      contains('assets/hill_day_cloudy_bg.webp'),
+    );
+  });
+
+  testWidgets('android tv system back closes menu without exiting app', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const MaterialApp(home: AnimationScreen(forceTvPerformanceMode: true)),
+    );
+    await tester.pump();
+
+    await _openTvMenu(tester);
+    expect(find.text('TV Scene Menu'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('TV Scene Menu'), findsNothing);
+    expect(find.byType(AnimationScreen), findsOneWidget);
   });
 
   testWidgets('android tv double select does not also trigger hello', (
@@ -427,6 +577,83 @@ void main() {
     expect(behaviorRequests, 1);
   });
 
+  testWidgets('android tv auto cycle alternates behavior and location', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var behaviorRequests = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnimationScreen(
+          forceTvPerformanceMode: true,
+          onBehaviorChangeRequestForTesting: () => behaviorRequests++,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(_sceneBackgroundAssetNames(tester), [
+      'assets/fields_day_cloudy_bg.webp',
+    ]);
+
+    await tester.pump(const Duration(minutes: 5, milliseconds: 1));
+    await tester.pump();
+
+    expect(behaviorRequests, 1);
+    expect(_sceneBackgroundAssetNames(tester), [
+      'assets/fields_day_cloudy_bg.webp',
+    ]);
+
+    await tester.pump(const Duration(minutes: 5, milliseconds: 1));
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      _sceneBackgroundAssetNames(tester),
+      contains('assets/hill_day_cloudy_bg.webp'),
+    );
+  });
+
+  testWidgets('android tv auto cycle can be disabled from the menu', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(3840, 2160);
+    tester.view.devicePixelRatio = 2.0;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    var behaviorRequests = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AnimationScreen(
+          forceTvPerformanceMode: true,
+          onBehaviorChangeRequestForTesting: () => behaviorRequests++,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await _openTvMenu(tester);
+    await tester.tap(find.byKey(const ValueKey('tv-menu-Off-option')));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    await tester.pump(const Duration(minutes: 5, milliseconds: 1));
+    await tester.pump();
+
+    expect(behaviorRequests, 0);
+    expect(_sceneBackgroundAssetNames(tester), [
+      'assets/fields_day_cloudy_bg.webp',
+    ]);
+  });
+
   testWidgets('android tv weather cycling uses only tv menu weather choices', (
     tester,
   ) async {
@@ -450,11 +677,11 @@ void main() {
 
     await _openTvMenu(tester);
 
-    final clearChip = tester.widget<ChoiceChip>(
-      find.widgetWithText(ChoiceChip, 'Clear'),
+    expect(
+      find.byKey(const ValueKey('tv-menu-Clear-selected')),
+      findsOneWidget,
     );
-    expect(clearChip.selected, isTrue);
-    expect(find.widgetWithText(ChoiceChip, 'Mostly Sunny'), findsNothing);
+    expect(find.text('Mostly Sunny'), findsNothing);
   });
 
   testWidgets('android tv scene menu selects a scene from three selectors', (
@@ -472,11 +699,11 @@ void main() {
 
     await _openTvMenu(tester);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Mushroom'));
+    await tester.tap(find.byKey(const ValueKey('tv-menu-Home-option')));
     await tester.pump();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Night'));
+    await tester.tap(find.byKey(const ValueKey('tv-menu-Night-option')));
     await tester.pump();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Clear'));
+    await tester.tap(find.byKey(const ValueKey('tv-menu-Clear-option')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 750));
 

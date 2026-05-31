@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -18,8 +19,12 @@ void main() {
   runApp(const MyApp());
 }
 
+const MethodChannel _tvMenuChannel = MethodChannel('froggy/tv_menu');
+
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  const MyApp({super.key, this.randomizeInitialScene = true});
+
+  final bool randomizeInitialScene;
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +32,7 @@ class MyApp extends StatelessWidget {
       title: 'Google\'s Weather Frog (Froggy)',
       theme: ThemeData.dark(useMaterial3: true),
       debugShowCheckedModeBanner: false,
-      home: const AnimationScreen(),
+      home: AnimationScreen(randomizeInitialScene: randomizeInitialScene),
     );
   }
 }
@@ -49,7 +54,7 @@ const Set<String> _sceneTimeTokens = {'morning', 'day', 'sunset', 'night'};
 const Map<String, String> _knownLocationLabels = {
   'fields': 'Fields',
   'hill': 'Hills',
-  'mushroom': 'Mushroom',
+  'mushroom': 'Home',
 };
 
 @visibleForTesting
@@ -102,7 +107,13 @@ String _tvPerformanceFrogFileForBackgroundFile(String backgroundFile) {
   final parts = sceneName.split('_');
   final timeIndex = parts.indexWhere(_sceneTimeTokens.contains);
   if (timeIndex != -1 && timeIndex + 1 < parts.length) {
-    parts[timeIndex + 1] = 'sunny';
+    final locationToken = parts.take(timeIndex).join('_');
+    final timeToken = parts[timeIndex];
+    final isBrokenHomePerformanceScene =
+        locationToken == 'mushroom' &&
+        (timeToken == 'day' || timeToken == 'sunset');
+
+    parts[timeIndex + 1] = isBrokenHomePerformanceScene ? 'cloudy' : 'sunny';
   }
   return '${parts.join('_')}_frog.flr';
 }
@@ -110,10 +121,13 @@ String _tvPerformanceFrogFileForBackgroundFile(String backgroundFile) {
 class AnimationScreen extends StatefulWidget {
   const AnimationScreen({
     super.key,
+    this.randomizeInitialScene = false,
     this.forceTvPerformanceMode,
     this.onGreetingRequestForTesting,
     this.onBehaviorChangeRequestForTesting,
   });
+
+  final bool randomizeInitialScene;
 
   @visibleForTesting
   final bool? forceTvPerformanceMode;
@@ -152,17 +166,58 @@ bool _isSelectKey(LogicalKeyboardKey key) {
       key == LogicalKeyboardKey.numpadEnter;
 }
 
-class _AnimationScreenState extends State<AnimationScreen> {
+enum AutoCycleMode { off, behavior, location, both }
+
+const List<String> _tvAutoCycleModeOptions = [
+  'Off',
+  'Behavior',
+  'Location',
+  'Both',
+];
+
+const List<String> _tvAutoCycleIntervalOptions = ['2 min', '5 min', '10 min'];
+
+const Map<String, AutoCycleMode> _tvAutoCycleModesByLabel = {
+  'Off': AutoCycleMode.off,
+  'Behavior': AutoCycleMode.behavior,
+  'Location': AutoCycleMode.location,
+  'Both': AutoCycleMode.both,
+};
+
+const Map<String, Duration> _tvAutoCycleIntervalsByLabel = {
+  '2 min': Duration(minutes: 2),
+  '5 min': Duration(minutes: 5),
+  '10 min': Duration(minutes: 10),
+};
+
+String _labelForAutoCycleMode(AutoCycleMode mode) {
+  return switch (mode) {
+    AutoCycleMode.off => 'Off',
+    AutoCycleMode.behavior => 'Behavior',
+    AutoCycleMode.location => 'Location',
+    AutoCycleMode.both => 'Both',
+  };
+}
+
+String _labelForAutoCycleInterval(Duration interval) {
+  for (final entry in _tvAutoCycleIntervalsByLabel.entries) {
+    if (entry.value == interval) return entry.key;
+  }
+  return '${interval.inMinutes} min';
+}
+
+class _AnimationScreenState extends State<AnimationScreen>
+    with WidgetsBindingObserver {
   static const int _tvBackgroundCacheSize = 1280;
   static const int _tvImageCacheEntries = 16;
   static const int _tvImageCacheBytes = 48 * 1024 * 1024;
+  static const Duration _defaultTvAutoCycleInterval = Duration(minutes: 5);
   static const Duration _defaultFlarePruneDelay = Duration(seconds: 2);
   static const Duration _tvFlarePruneDelay = Duration.zero;
   static const Duration _selectLongPressDuration = Duration(milliseconds: 600);
   static const Duration _selectDoubleClickDuration = Duration(
     milliseconds: 300,
   );
-  static const Duration _sceneCrossfadeDuration = Duration(milliseconds: 650);
 
   final List<FilePair> filePairs = [
     FilePair('fields_day_cloudy_bg.webp', 'fields_day_cloudy_frog.flr'),
@@ -265,15 +320,22 @@ class _AnimationScreenState extends State<AnimationScreen> {
   // Ambient & Interaction state
   DateTime _lastInteractionTime = DateTime.now();
   Timer? _ambientTimer;
+  Timer? _tvAutoCycleTimer;
   Timer? _selectLongPressTimer;
   Timer? _selectSingleClickTimer;
-  Timer? _sceneResourcePruneTimer;
   bool _isReacting = false;
   bool _selectPressed = false;
   bool _selectLongPressTriggered = false;
   bool _tvSceneMenuOpen = false;
+  bool _tvSceneHiddenForTransition = false;
+  int? _pendingTvSceneIndex;
+  OverlayEntry? _tvSceneMenuOverlayEntry;
+  KeyEventResult Function(KeyEvent event)? _tvSceneMenuKeyHandler;
   final FocusNode _mainFocusNode = FocusNode();
   bool _tvPerformanceMode = false;
+  AutoCycleMode _autoCycleMode = AutoCycleMode.both;
+  Duration _autoCycleInterval = _defaultTvAutoCycleInterval;
+  bool _autoCycleNextChangesLocation = false;
 
   // Category Selector Parsed States
   List<ParsedScene> parsedScenes = [];
@@ -284,6 +346,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _tvMenuChannel.setMethodCallHandler(_handleTvMenuMethodCall);
 
     // Enable sticky fullscreen immersive mode
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
@@ -298,8 +362,11 @@ class _AnimationScreenState extends State<AnimationScreen> {
     // Parse all file pairs into categorizable scenes
     _parseAllScenes();
 
-    if (Uri.base.queryParameters['index'] != null) {
-      currentIndex = int.parse(Uri.base.queryParameters['index']!);
+    final requestedIndex = Uri.base.queryParameters['index'];
+    if (requestedIndex != null) {
+      currentIndex = int.parse(requestedIndex);
+    } else if (widget.randomizeInitialScene && filePairs.isNotEmpty) {
+      currentIndex = Random().nextInt(filePairs.length);
     }
 
     froggyAnimation = froggyAnimations[currentIndex];
@@ -310,16 +377,21 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
     // Dynamic ambient intelligent behavior timer
     _startAmbientTimer();
+    _startTvAutoCycleTimer();
   }
 
   @override
   void dispose() {
     // Restore default system UI overlay behavior
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    WidgetsBinding.instance.removeObserver(this);
+    _tvMenuChannel.setMethodCallHandler(null);
     _ambientTimer?.cancel();
+    _tvAutoCycleTimer?.cancel();
     _selectLongPressTimer?.cancel();
     _selectSingleClickTimer?.cancel();
-    _sceneResourcePruneTimer?.cancel();
+    _tvSceneMenuOverlayEntry?.remove();
+    _tvSceneMenuOverlayEntry = null;
     for (final animation in froggyAnimations) {
       animation.dispose();
     }
@@ -327,6 +399,30 @@ class _AnimationScreenState extends State<AnimationScreen> {
     _transformationController.dispose();
     _mainFocusNode.dispose();
     super.dispose();
+  }
+
+  @override
+  Future<bool> didPopRoute() => _handleBackButtonPressed();
+
+  Future<Object?> _handleTvMenuMethodCall(MethodCall call) async {
+    if (call.method == 'backPressed') {
+      if (_tvSceneMenuOpen) {
+        _hideTvSceneMenu();
+        return true;
+      }
+      return false;
+    }
+    throw MissingPluginException('No handler for ${call.method}');
+  }
+
+  void _setNativeTvSceneMenuOpen(bool open) {
+    if (kIsWeb || !Platform.isAndroid) return;
+
+    unawaited(
+      _tvMenuChannel
+          .invokeMethod<void>('setTvMenuOpen', {'open': open})
+          .catchError((Object error, StackTrace stackTrace) {}),
+    );
   }
 
   void _parseAllScenes() {
@@ -391,26 +487,64 @@ class _AnimationScreenState extends State<AnimationScreen> {
   }
 
   void _showSingleSceneAtIndex(int index) {
+    if (index == currentIndex) {
+      setState(() {
+        _setCurrentScene(index);
+      });
+      _pruneSceneResources(tvPerformanceMode: true);
+      return;
+    }
+
+    final previousIndex = currentIndex;
+    _pendingTvSceneIndex = index;
+    if (_tvSceneHiddenForTransition) return;
+
     setState(() {
-      _setCurrentScene(index);
+      _tvSceneHiddenForTransition = true;
       _transformationController.value = Matrix4.identity();
     });
-    _pruneSceneResourcesAfterTransition();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+
+      final nextIndex = _pendingTvSceneIndex;
+      if (nextIndex == null) {
+        setState(() => _tvSceneHiddenForTransition = false);
+        return;
+      }
+
+      _pendingTvSceneIndex = null;
+      _unloadTvSceneResources(previousIndex);
+      if (!mounted) return;
+
+      setState(() {
+        _setCurrentScene(nextIndex);
+        _tvSceneHiddenForTransition = false;
+      });
+    });
+  }
+
+  void _unloadTvSceneResources(int sceneIndex) {
+    final animationIndexes = {
+      sceneIndex,
+      _animationIndexForScene(sceneIndex, tvPerformanceMode: true),
+    };
+
+    for (final animationIndex in animationIndexes) {
+      if (animationIndex < 0 || animationIndex >= froggyAnimations.length) {
+        continue;
+      }
+      final animation = froggyAnimations[animationIndex];
+      animation.unloadLoadedResources();
+      unawaited(AssetImage('assets/${animation.backgroundFile}').evict());
+    }
+
+    final imageCache = PaintingBinding.instance.imageCache;
+    imageCache.clear();
   }
 
   void _recordInteraction() {
     _lastInteractionTime = DateTime.now();
-  }
-
-  void _pruneSceneResourcesAfterTransition() {
-    _sceneResourcePruneTimer?.cancel();
-    _sceneResourcePruneTimer = Timer(
-      _sceneCrossfadeDuration + const Duration(milliseconds: 100),
-      () {
-        if (!mounted) return;
-        _pruneSceneResources(tvPerformanceMode: true);
-      },
-    );
   }
 
   void _handleSelectDown({required bool tvPerformanceMode}) {
@@ -464,6 +598,8 @@ class _AnimationScreenState extends State<AnimationScreen> {
     _ambientTimer?.cancel();
     // Periodically checks if the app is left idle to cycle behaviors
     _ambientTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (_tvPerformanceMode) return;
+
       final idleSeconds = DateTime.now()
           .difference(_lastInteractionTime)
           .inSeconds;
@@ -477,6 +613,58 @@ class _AnimationScreenState extends State<AnimationScreen> {
         }
       }
     });
+  }
+
+  void _startTvAutoCycleTimer() {
+    _tvAutoCycleTimer?.cancel();
+    if (_autoCycleMode == AutoCycleMode.off) return;
+
+    _tvAutoCycleTimer = Timer.periodic(_autoCycleInterval, (_) {
+      _handleTvAutoCycleTick();
+    });
+  }
+
+  void _setAutoCycleMode(AutoCycleMode mode) {
+    _autoCycleMode = mode;
+    _autoCycleNextChangesLocation = false;
+    _recordInteraction();
+    _startTvAutoCycleTimer();
+  }
+
+  void _setAutoCycleInterval(Duration interval) {
+    _autoCycleInterval = interval;
+    _autoCycleNextChangesLocation = false;
+    _recordInteraction();
+    _startTvAutoCycleTimer();
+  }
+
+  void _handleTvAutoCycleTick() {
+    if (!mounted ||
+        !_tvPerformanceMode ||
+        _tvSceneMenuOpen ||
+        _tvSceneHiddenForTransition ||
+        _pendingTvSceneIndex != null) {
+      return;
+    }
+
+    switch (_autoCycleMode) {
+      case AutoCycleMode.off:
+        return;
+      case AutoCycleMode.behavior:
+        _cycleLoopAnimation();
+        break;
+      case AutoCycleMode.location:
+        _cycleLocation(1);
+        break;
+      case AutoCycleMode.both:
+        if (_autoCycleNextChangesLocation) {
+          _cycleLocation(1);
+        } else {
+          _cycleLoopAnimation();
+        }
+        _autoCycleNextChangesLocation = !_autoCycleNextChangesLocation;
+        break;
+    }
   }
 
   void _triggerGreetingReaction() {
@@ -563,6 +751,21 @@ class _AnimationScreenState extends State<AnimationScreen> {
         weatherChoices.length;
 
     selectedWeather = weatherChoices[nextWeatherIndex];
+    _updateSceneFromSelectors();
+  }
+
+  void _cycleLocation(int direction) {
+    final locations = locationOptionsForScenes(parsedScenes);
+    if (locations.isEmpty) return;
+
+    final currentLocationIndex = locations.indexOf(selectedLocation);
+    final normalizedIndex = currentLocationIndex == -1
+        ? 0
+        : currentLocationIndex;
+    final nextLocationIndex =
+        (normalizedIndex + direction + locations.length) % locations.length;
+
+    selectedLocation = locations[nextLocationIndex];
     _updateSceneFromSelectors();
   }
 
@@ -822,20 +1025,39 @@ class _AnimationScreenState extends State<AnimationScreen> {
 
     _recordInteraction();
     _tvSceneMenuOpen = true;
+    _setNativeTvSceneMenuOpen(true);
     final locationOptions = locationOptionsForScenes(parsedScenes);
     final sceneWeatherOptions = sceneWeatherOptionsForScenes(parsedScenes);
+    final rows = [
+      locationOptions,
+      const ['Morning', 'Day', 'Sunset', 'Night'],
+      sceneWeatherOptions,
+      _tvAutoCycleModeOptions,
+      _tvAutoCycleIntervalOptions,
+    ];
+    var focusedRow = 0;
+    final focusedIndexes = [
+      locationOptions
+          .indexOf(selectedLocation)
+          .clamp(0, locationOptions.length - 1),
+      rows[1].indexOf(selectedTime).clamp(0, rows[1].length - 1),
+      sceneWeatherOptions
+          .indexOf(selectedWeather)
+          .clamp(0, sceneWeatherOptions.length - 1),
+      _tvAutoCycleModeOptions
+          .indexOf(_labelForAutoCycleMode(_autoCycleMode))
+          .clamp(0, _tvAutoCycleModeOptions.length - 1),
+      _tvAutoCycleIntervalOptions
+          .indexOf(_labelForAutoCycleInterval(_autoCycleInterval))
+          .clamp(0, _tvAutoCycleIntervalOptions.length - 1),
+    ];
 
-    showGeneralDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierLabel: 'TV Scene Menu',
-      barrierColor: Colors.black.withValues(alpha: 0.22),
-      transitionDuration: const Duration(milliseconds: 240),
-      pageBuilder: (context, animation, secondaryAnimation) {
+    _tvSceneMenuOverlayEntry = OverlayEntry(
+      builder: (context) {
         return StatefulBuilder(
           builder: (context, setModalState) {
             IconData iconForLocation(String location) {
-              if (location == 'Mushroom') return Icons.home_rounded;
+              if (location == 'Home') return Icons.home_rounded;
               if (location == 'Hills') return Icons.terrain_rounded;
               return Icons.grass_rounded;
             }
@@ -859,44 +1081,100 @@ class _AnimationScreenState extends State<AnimationScreen> {
               };
             }
 
+            IconData iconForAutoCycle(String mode) {
+              return switch (mode) {
+                'Off' => Icons.pause_circle_outline_rounded,
+                'Behavior' => Icons.directions_run_rounded,
+                'Location' => Icons.travel_explore_rounded,
+                _ => Icons.all_inclusive_rounded,
+              };
+            }
+
+            IconData iconForInterval(String interval) {
+              return switch (interval) {
+                '2 min' => Icons.looks_two_rounded,
+                '10 min' => Icons.exposure_plus_1_rounded,
+                _ => Icons.timer_rounded,
+              };
+            }
+
             Widget buildTile({
               required String option,
               required bool selected,
+              required bool focused,
               required Color activeColor,
               required IconData icon,
               required VoidCallback onSelected,
             }) {
               return Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: ChoiceChip(
-                  avatar: Icon(
-                    icon,
-                    size: 22,
-                    color: selected ? activeColor : Colors.white60,
+                child: GestureDetector(
+                  onTap: onSelected,
+                  child: AnimatedContainer(
+                    key: ValueKey(
+                      'tv-menu-$option-${selected
+                          ? 'selected'
+                          : focused
+                          ? 'focused'
+                          : 'option'}',
+                    ),
+                    duration: const Duration(milliseconds: 140),
+                    curve: Curves.easeOutCubic,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: focused
+                          ? activeColor.withValues(alpha: 0.22)
+                          : (selected
+                                ? activeColor.withValues(alpha: 0.12)
+                                : Colors.white.withValues(alpha: 0.08)),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: focused
+                            ? activeColor
+                            : (selected
+                                  ? activeColor.withValues(alpha: 0.65)
+                                  : Colors.white.withValues(alpha: 0.22)),
+                        width: focused ? 2 : 1,
+                      ),
+                      boxShadow: focused
+                          ? [
+                              BoxShadow(
+                                color: activeColor.withValues(alpha: 0.2),
+                                blurRadius: 16,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          icon,
+                          size: 22,
+                          color: (focused || selected)
+                              ? activeColor
+                              : Colors.white60,
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          option,
+                          style: TextStyle(
+                            color: (focused || selected)
+                                ? activeColor
+                                : Colors.white70,
+                            fontSize: 16,
+                            fontWeight: (focused || selected)
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  label: Text(option),
-                  selected: selected,
-                  selectedColor: activeColor.withValues(alpha: 0.24),
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
-                  labelStyle: TextStyle(
-                    color: selected ? activeColor : Colors.white70,
-                    fontSize: 16,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 14,
-                  ),
-                  side: BorderSide(
-                    color: selected
-                        ? activeColor.withValues(alpha: 0.85)
-                        : Colors.white.withValues(alpha: 0.22),
-                    width: selected ? 1.5 : 1,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  onSelected: (_) => onSelected(),
                 ),
               );
             }
@@ -908,7 +1186,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
               required String selected,
               required Color activeColor,
               required IconData Function(String option) optionIcon,
+              required int rowIndex,
               required ValueChanged<String> onSelected,
+              bool updatesScene = true,
             }) {
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 10),
@@ -940,14 +1220,24 @@ class _AnimationScreenState extends State<AnimationScreen> {
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: options.map((option) {
+                            final optionIndex = options.indexOf(option);
                             return buildTile(
                               option: option,
                               selected: selected == option,
+                              focused:
+                                  focusedRow == rowIndex &&
+                                  focusedIndexes[rowIndex] == optionIndex,
                               activeColor: activeColor,
                               icon: optionIcon(option),
                               onSelected: () {
-                                setModalState(() => onSelected(option));
-                                _updateSceneFromSelectors();
+                                setModalState(() {
+                                  focusedRow = rowIndex;
+                                  focusedIndexes[rowIndex] = optionIndex;
+                                  onSelected(option);
+                                });
+                                if (updatesScene) {
+                                  _updateSceneFromSelectors();
+                                }
                               },
                             );
                           }).toList(),
@@ -959,106 +1249,233 @@ class _AnimationScreenState extends State<AnimationScreen> {
               );
             }
 
+            void selectFocusedOption() {
+              final selectedOption =
+                  rows[focusedRow][focusedIndexes[focusedRow]];
+              var updatesScene = true;
+
+              setModalState(() {
+                if (focusedRow == 0) {
+                  selectedLocation = selectedOption;
+                } else if (focusedRow == 1) {
+                  selectedTime = selectedOption;
+                } else if (focusedRow == 2) {
+                  selectedWeather = selectedOption;
+                } else if (focusedRow == 3) {
+                  updatesScene = false;
+                  _setAutoCycleMode(
+                    _tvAutoCycleModesByLabel[selectedOption] ??
+                        AutoCycleMode.off,
+                  );
+                } else {
+                  updatesScene = false;
+                  _setAutoCycleInterval(
+                    _tvAutoCycleIntervalsByLabel[selectedOption] ??
+                        _defaultTvAutoCycleInterval,
+                  );
+                }
+              });
+
+              if (updatesScene) {
+                _updateSceneFromSelectors();
+              }
+            }
+
+            KeyEventResult handleMenuKey(KeyEvent event) {
+              if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+                return KeyEventResult.ignored;
+              }
+
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.escape ||
+                  key == LogicalKeyboardKey.goBack ||
+                  key == LogicalKeyboardKey.browserBack) {
+                _hideTvSceneMenu();
+                return KeyEventResult.handled;
+              }
+
+              if (key == LogicalKeyboardKey.arrowUp) {
+                setModalState(() {
+                  focusedRow = (focusedRow - 1 + rows.length) % rows.length;
+                  focusedIndexes[focusedRow] = focusedIndexes[focusedRow].clamp(
+                    0,
+                    rows[focusedRow].length - 1,
+                  );
+                });
+                return KeyEventResult.handled;
+              }
+              if (key == LogicalKeyboardKey.arrowDown) {
+                setModalState(() {
+                  focusedRow = (focusedRow + 1) % rows.length;
+                  focusedIndexes[focusedRow] = focusedIndexes[focusedRow].clamp(
+                    0,
+                    rows[focusedRow].length - 1,
+                  );
+                });
+                return KeyEventResult.handled;
+              }
+              if (key == LogicalKeyboardKey.arrowLeft) {
+                setModalState(() {
+                  final rowOptions = rows[focusedRow];
+                  focusedIndexes[focusedRow] =
+                      (focusedIndexes[focusedRow] - 1 + rowOptions.length) %
+                      rowOptions.length;
+                });
+                return KeyEventResult.handled;
+              }
+              if (key == LogicalKeyboardKey.arrowRight) {
+                setModalState(() {
+                  final rowOptions = rows[focusedRow];
+                  focusedIndexes[focusedRow] =
+                      (focusedIndexes[focusedRow] + 1) % rowOptions.length;
+                });
+                return KeyEventResult.handled;
+              }
+              if (_isSelectKey(key)) {
+                selectFocusedOption();
+                return KeyEventResult.handled;
+              }
+
+              return KeyEventResult.handled;
+            }
+
+            _tvSceneMenuKeyHandler = handleMenuKey;
+
             return Material(
-              type: MaterialType.transparency,
-              child: Focus(
-                autofocus: true,
-                onKeyEvent: (node, event) {
-                  if (event is KeyDownEvent &&
-                      (event.logicalKey == LogicalKeyboardKey.escape ||
-                          event.logicalKey == LogicalKeyboardKey.goBack ||
-                          event.logicalKey == LogicalKeyboardKey.browserBack)) {
-                    Navigator.of(context).pop();
-                    return KeyEventResult.handled;
-                  }
-                  return KeyEventResult.ignored;
+              color: Colors.black.withValues(alpha: 0.22),
+              child: TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: 0, end: 1),
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                builder: (context, value, child) {
+                  return Opacity(
+                    opacity: value,
+                    child: Transform.translate(
+                      offset: Offset(0, -18 * (1 - value)),
+                      child: child,
+                    ),
+                  );
                 },
-                child: SafeArea(
-                  child: Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(
-                        top: 54,
-                        left: 48,
-                        right: 48,
-                      ),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 1120),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: BackdropFilter(
-                            filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.58),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.14),
+                child: Focus(
+                  autofocus: true,
+                  onKeyEvent: (node, event) => handleMenuKey(event),
+                  child: SafeArea(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: Padding(
+                        padding: const EdgeInsets.only(
+                          top: 54,
+                          left: 48,
+                          right: 48,
+                        ),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 1120),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.66),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.14),
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.28),
+                                  blurRadius: 28,
+                                  offset: const Offset(0, 18),
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.28),
-                                    blurRadius: 28,
-                                    offset: const Offset(0, 18),
+                              ],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(
+                                26,
+                                22,
+                                26,
+                                18,
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'TV Scene Menu',
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 14),
+                                  buildSection(
+                                    label: 'Location',
+                                    icon: Icons.place_rounded,
+                                    options: locationOptions,
+                                    selected: selectedLocation,
+                                    activeColor: Colors.cyanAccent,
+                                    optionIcon: iconForLocation,
+                                    rowIndex: 0,
+                                    onSelected: (value) =>
+                                        selectedLocation = value,
+                                  ),
+                                  buildSection(
+                                    label: 'Time',
+                                    icon: Icons.schedule_rounded,
+                                    options: const [
+                                      'Morning',
+                                      'Day',
+                                      'Sunset',
+                                      'Night',
+                                    ],
+                                    selected: selectedTime,
+                                    activeColor: Colors.amberAccent,
+                                    optionIcon: iconForTime,
+                                    rowIndex: 1,
+                                    onSelected: (value) => selectedTime = value,
+                                  ),
+                                  buildSection(
+                                    label: 'Weather',
+                                    icon: Icons.filter_drama_rounded,
+                                    options: sceneWeatherOptions,
+                                    selected: selectedWeather,
+                                    activeColor: Colors.purpleAccent,
+                                    optionIcon: iconForWeather,
+                                    rowIndex: 2,
+                                    onSelected: (value) =>
+                                        selectedWeather = value,
+                                  ),
+                                  buildSection(
+                                    label: 'Auto',
+                                    icon: Icons.autorenew_rounded,
+                                    options: _tvAutoCycleModeOptions,
+                                    selected: _labelForAutoCycleMode(
+                                      _autoCycleMode,
+                                    ),
+                                    activeColor: Colors.lightGreenAccent,
+                                    optionIcon: iconForAutoCycle,
+                                    rowIndex: 3,
+                                    updatesScene: false,
+                                    onSelected: (value) => _setAutoCycleMode(
+                                      _tvAutoCycleModesByLabel[value] ??
+                                          AutoCycleMode.off,
+                                    ),
+                                  ),
+                                  buildSection(
+                                    label: 'Every',
+                                    icon: Icons.timer_rounded,
+                                    options: _tvAutoCycleIntervalOptions,
+                                    selected: _labelForAutoCycleInterval(
+                                      _autoCycleInterval,
+                                    ),
+                                    activeColor: Colors.orangeAccent,
+                                    optionIcon: iconForInterval,
+                                    rowIndex: 4,
+                                    updatesScene: false,
+                                    onSelected: (value) =>
+                                        _setAutoCycleInterval(
+                                          _tvAutoCycleIntervalsByLabel[value] ??
+                                              _defaultTvAutoCycleInterval,
+                                        ),
                                   ),
                                 ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  26,
-                                  22,
-                                  26,
-                                  18,
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'TV Scene Menu',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 22,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 14),
-                                    buildSection(
-                                      label: 'Location',
-                                      icon: Icons.place_rounded,
-                                      options: locationOptions,
-                                      selected: selectedLocation,
-                                      activeColor: Colors.cyanAccent,
-                                      optionIcon: iconForLocation,
-                                      onSelected: (value) =>
-                                          selectedLocation = value,
-                                    ),
-                                    buildSection(
-                                      label: 'Time',
-                                      icon: Icons.schedule_rounded,
-                                      options: const [
-                                        'Morning',
-                                        'Day',
-                                        'Sunset',
-                                        'Night',
-                                      ],
-                                      selected: selectedTime,
-                                      activeColor: Colors.amberAccent,
-                                      optionIcon: iconForTime,
-                                      onSelected: (value) =>
-                                          selectedTime = value,
-                                    ),
-                                    buildSection(
-                                      label: 'Weather',
-                                      icon: Icons.filter_drama_rounded,
-                                      options: sceneWeatherOptions,
-                                      selected: selectedWeather,
-                                      activeColor: Colors.purpleAccent,
-                                      optionIcon: iconForWeather,
-                                      onSelected: (value) =>
-                                          selectedWeather = value,
-                                    ),
-                                  ],
-                                ),
                               ),
                             ),
                           ),
@@ -1072,26 +1489,28 @@ class _AnimationScreenState extends State<AnimationScreen> {
           },
         );
       },
-      transitionBuilder: (context, animation, secondaryAnimation, child) {
-        final curved = CurvedAnimation(
-          parent: animation,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return FadeTransition(
-          opacity: curved,
-          child: SlideTransition(
-            position: Tween<Offset>(
-              begin: const Offset(0, -0.04),
-              end: Offset.zero,
-            ).animate(curved),
-            child: child,
-          ),
-        );
-      },
-    ).whenComplete(() {
-      _tvSceneMenuOpen = false;
-    });
+    );
+
+    Overlay.of(context, rootOverlay: true).insert(_tvSceneMenuOverlayEntry!);
+  }
+
+  void _hideTvSceneMenu() {
+    if (!_tvSceneMenuOpen) return;
+
+    _tvSceneMenuKeyHandler = null;
+    _tvSceneMenuOpen = false;
+    _setNativeTvSceneMenuOpen(false);
+    _tvSceneMenuOverlayEntry?.remove();
+    _tvSceneMenuOverlayEntry = null;
+    _mainFocusNode.requestFocus();
+    _recordInteraction();
+  }
+
+  Future<bool> _handleBackButtonPressed() async {
+    if (!_tvSceneMenuOpen) return false;
+
+    _hideTvSceneMenu();
+    return true;
   }
 
   // Check if platform is Android or iOS (mobile / TV device)
@@ -1142,16 +1561,12 @@ class _AnimationScreenState extends State<AnimationScreen> {
       if (!shouldRetain) {
         final animation = froggyAnimations[i];
         animation.unloadLoadedResources();
-        if (tvPerformanceMode) {
-          unawaited(AssetImage('assets/${animation.backgroundFile}').evict());
-        }
       }
     }
 
     if (tvPerformanceMode) {
       final imageCache = PaintingBinding.instance.imageCache;
       imageCache.clear();
-      imageCache.clearLiveImages();
     }
   }
 
@@ -1295,6 +1710,35 @@ class _AnimationScreenState extends State<AnimationScreen> {
       focusNode: _mainFocusNode,
       autofocus: true,
       onKeyEvent: (node, event) {
+        if (_tvSceneMenuOpen) {
+          final menuKeyHandler = _tvSceneMenuKeyHandler;
+          if (menuKeyHandler != null) {
+            final menuResult = menuKeyHandler(event);
+            if (menuResult == KeyEventResult.handled) {
+              return KeyEventResult.handled;
+            }
+          }
+          if (event is KeyDownEvent ||
+              event is KeyRepeatEvent ||
+              event is KeyUpEvent) {
+            return KeyEventResult.handled;
+          }
+        }
+
+        if (event is KeyRepeatEvent && _isSelectKey(event.logicalKey)) {
+          _selectLongPressTimer?.cancel();
+          _selectSingleClickTimer?.cancel();
+          _selectSingleClickTimer = null;
+          _selectPressed = false;
+          _selectLongPressTriggered = true;
+
+          if (tvPerformanceMode) {
+            _showTvSceneMenu();
+          } else {
+            _showSceneDrawer();
+          }
+          return KeyEventResult.handled;
+        }
         if (event is KeyDownEvent) {
           if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
               event.logicalKey == LogicalKeyboardKey.keyD) {
@@ -1388,32 +1832,9 @@ class _AnimationScreenState extends State<AnimationScreen> {
                     }
                   },
                   child: tvPerformanceMode
-                      ? AnimatedSwitcher(
-                          duration: _sceneCrossfadeDuration,
-                          switchInCurve: Curves.easeOutCubic,
-                          switchOutCurve: Curves.easeInCubic,
-                          layoutBuilder: (currentChild, previousChildren) {
-                            return Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                ...previousChildren,
-                                if (currentChild != null) currentChild,
-                              ],
-                            );
-                          },
-                          transitionBuilder: (child, animation) {
-                            return FadeTransition(
-                              opacity: animation,
-                              child: child,
-                            );
-                          },
-                          child: KeyedSubtree(
-                            key: ValueKey(
-                              filePairs[currentIndex].backgroundFile,
-                            ),
-                            child: buildScene(currentIndex),
-                          ),
-                        )
+                      ? (_tvSceneHiddenForTransition
+                            ? const ColoredBox(color: Colors.black)
+                            : buildScene(currentIndex))
                       : PageView.builder(
                           controller: _pageController,
                           itemCount: froggyAnimations.length,
