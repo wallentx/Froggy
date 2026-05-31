@@ -27,8 +27,9 @@ class VideoExporter {
     required int index,
     required void Function(double progress, String status) onProgress,
   }) async {
-    final frameDir =
-        Directory('${Directory.systemTemp.path}/froggy_export_$index');
+    final frameDir = Directory(
+      '${Directory.systemTemp.path}/froggy_export_$index',
+    );
     await frameDir.create(recursive: true);
 
     try {
@@ -51,7 +52,8 @@ class VideoExporter {
           final (bytes, _, _) = await _captureFrame();
           if (bytes != null) {
             final file = File(
-                '${frameDir.path}/frame_${frameIndex.toString().padLeft(4, '0')}.png');
+              '${frameDir.path}/frame_${frameIndex.toString().padLeft(4, '0')}.png',
+            );
             await file.writeAsBytes(bytes);
             frameIndex++;
 
@@ -91,7 +93,8 @@ class VideoExporter {
       ]);
 
       final outputFile = File(outputPath);
-      final succeeded = result.exitCode == 0 &&
+      final succeeded =
+          result.exitCode == 0 &&
           outputFile.existsSync() &&
           outputFile.lengthSync() > 0;
 
@@ -122,8 +125,9 @@ class VideoExporter {
 
   Future<(Uint8List?, int?, int?)> _captureFrame() async {
     try {
-      final boundary = repaintKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
+      final boundary =
+          repaintKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
       if (boundary == null) return (null, null, null);
 
       final image = await boundary.toImage(pixelRatio: 1.0);
@@ -139,7 +143,8 @@ class VideoExporter {
   }
 
   static String _videosPath() {
-    final home = Platform.environment['HOME'] ??
+    final home =
+        Platform.environment['HOME'] ??
         Platform.environment['USERPROFILE'] ??
         '';
     final dir = Directory('$home/Videos');
