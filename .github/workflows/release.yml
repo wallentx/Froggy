@@ -15,6 +15,14 @@ on:
         type: boolean
         required: true
         default: false
+      release_type:
+        description: 'Type of release to publish'
+        type: choice
+        required: true
+        default: 'release'
+        options:
+          - release
+          - prerelease
       target_platform:
         description: 'Select platform to compile (or "all")'
         type: choice
@@ -196,48 +204,14 @@ jobs:
           path: froggy-windows-x64.zip
           archive: false
 
-  build-macos:
-    name: Build macOS
+  build-apple:
+    name: Build Apple (macOS & iOS)
     runs-on: macos-latest
     if: |
       always() &&
       (github.event_name == 'push' || 
        github.event.inputs.target_platform == 'all' || 
-       github.event.inputs.target_platform == 'macos')
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v6
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
-
-      - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Build macOS Desktop
-        run: flutter build macos --release --no-codesign
-
-      - name: Package macOS Artifact
-        run: |
-          cd build/macos/Build/Products/Release && zip -r ../../../../froggy-macos.zip froggy.app
-
-      - name: Upload macOS Zip
-        uses: actions/upload-artifact@v7
-        with:
-          name: froggy-macos.zip
-          path: froggy-macos.zip
-          archive: false
-
-  build-ios:
-    name: Build iOS
-    runs-on: macos-latest
-    if: |
-      always() &&
-      (github.event_name == 'push' || 
-       github.event.inputs.target_platform == 'all' || 
+       github.event.inputs.target_platform == 'macos' || 
        github.event.inputs.target_platform == 'ios')
     steps:
       - name: Checkout Repository
@@ -252,14 +226,54 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      # macOS Desktop Build
+      - name: Build macOS Desktop
+        if: |
+          github.event_name == 'push' || 
+          github.event.inputs.target_platform == 'all' || 
+          github.event.inputs.target_platform == 'macos'
+        run: flutter build macos --release
+
+      - name: Package macOS Artifact
+        if: |
+          github.event_name == 'push' || 
+          github.event.inputs.target_platform == 'all' || 
+          github.event.inputs.target_platform == 'macos'
+        run: |
+          cd build/macos/Build/Products/Release && zip -r ../../../../froggy-macos.zip froggy.app
+
+      - name: Upload macOS Zip
+        if: |
+          github.event_name == 'push' || 
+          github.event.inputs.target_platform == 'all' || 
+          github.event.inputs.target_platform == 'macos'
+        uses: actions/upload-artifact@v7
+        with:
+          name: froggy-macos.zip
+          path: froggy-macos.zip
+          archive: false
+
+      # iOS Build
       - name: Build iOS App
+        if: |
+          github.event_name == 'push' || 
+          github.event.inputs.target_platform == 'all' || 
+          github.event.inputs.target_platform == 'ios'
         run: flutter build ios --release --no-codesign
 
       - name: Package iOS Artifact
+        if: |
+          github.event_name == 'push' || 
+          github.event.inputs.target_platform == 'all' || 
+          github.event.inputs.target_platform == 'ios'
         run: |
           cd build/ios/iphoneos && zip -r ../../../froggy-ios.zip Runner.app
 
       - name: Upload iOS Zip
+        if: |
+          github.event_name == 'push' || 
+          github.event.inputs.target_platform == 'all' || 
+          github.event.inputs.target_platform == 'ios'
         uses: actions/upload-artifact@v7
         with:
           name: froggy-ios.zip
@@ -274,8 +288,7 @@ jobs:
       - build-web
       - build-linux
       - build-windows
-      - build-macos
-      - build-ios
+      - build-apple
     if: |
       always() &&
       (github.event_name == 'push' || 
@@ -297,7 +310,7 @@ jobs:
           tag_name: ${{ github.event.inputs.version || github.ref_name || format('v1.0.0-manual-{0}', github.run_number) }}
           name: Release ${{ github.event.inputs.version || github.ref_name || format('v1.0.0-manual-{0}', github.run_number) }}
           draft: false
-          prerelease: false
+          prerelease: ${{ github.event.inputs.release_type == 'prerelease' || contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
           files: |
             froggy-android.apk
             froggy-android.aab
