@@ -74,14 +74,16 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-android-apk
+          name: froggy-android.apk
           path: froggy-android.apk
+          archive: false
 
       - name: Upload AAB
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-android-aab
+          name: froggy-android.aab
           path: froggy-android.aab
+          archive: false
 
   build-web:
     name: Build Web
@@ -114,8 +116,9 @@ jobs:
       - name: Upload Web Zip
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-web
+          name: froggy-web.zip
           path: froggy-web.zip
+          archive: false
 
   build-linux:
     name: Build Linux
@@ -153,8 +156,9 @@ jobs:
       - name: Upload Linux Tarball
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-linux
+          name: froggy-linux-x64.tar.gz
           path: froggy-linux-x64.tar.gz
+          archive: false
 
   build-windows:
     name: Build Windows
@@ -188,8 +192,9 @@ jobs:
       - name: Upload Windows Zip
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-windows
+          name: froggy-windows-x64.zip
           path: froggy-windows-x64.zip
+          archive: false
 
   build-macos:
     name: Build macOS
@@ -222,8 +227,9 @@ jobs:
       - name: Upload macOS Zip
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-macos
+          name: froggy-macos.zip
           path: froggy-macos.zip
+          archive: false
 
   build-ios:
     name: Build iOS
@@ -256,8 +262,9 @@ jobs:
       - name: Upload iOS Zip
         uses: actions/upload-artifact@v7
         with:
-          name: froggy-ios
+          name: froggy-ios.zip
           path: froggy-ios.zip
+          archive: false
 
   publish-release:
     name: Publish Release
@@ -279,40 +286,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
-      - name: Download Android APK
+      - name: Download All Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: froggy-android-apk
-
-      - name: Download Android AAB
-        uses: actions/download-artifact@v8
-        with:
-          name: froggy-android-aab
-
-      - name: Download Web Zip
-        uses: actions/download-artifact@v8
-        with:
-          name: froggy-web
-
-      - name: Download Linux Tarball
-        uses: actions/download-artifact@v8
-        with:
-          name: froggy-linux
-
-      - name: Download Windows Zip
-        uses: actions/download-artifact@v8
-        with:
-          name: froggy-windows
-
-      - name: Download macOS Zip
-        uses: actions/download-artifact@v8
-        with:
-          name: froggy-macos
-
-      - name: Download iOS Zip
-        uses: actions/download-artifact@v8
-        with:
-          name: froggy-ios
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
