@@ -119,7 +119,7 @@ jobs:
 
       - name: Package Web Artifact
         run: |
-          cd build/web && zip -r ../../froggy-web.zip .
+          cd build/web && zip -r "$GITHUB_WORKSPACE/froggy-web.zip" .
 
       - name: Upload Web Zip
         uses: actions/upload-artifact@v7
@@ -240,7 +240,7 @@ jobs:
           github.event.inputs.target_platform == 'all' || 
           github.event.inputs.target_platform == 'macos'
         run: |
-          cd build/macos/Build/Products/Release && zip -r ../../../../froggy-macos.zip froggy.app
+          cd build/macos/Build/Products/Release && zip -r "$GITHUB_WORKSPACE/froggy-macos.zip" ./*.app
 
       - name: Upload macOS Zip
         if: |
@@ -267,7 +267,7 @@ jobs:
           github.event.inputs.target_platform == 'all' || 
           github.event.inputs.target_platform == 'ios'
         run: |
-          cd build/ios/iphoneos && zip -r ../../../froggy-ios.zip Runner.app
+          cd build/ios/iphoneos && zip -r "$GITHUB_WORKSPACE/froggy-ios.zip" ./*.app
 
       - name: Upload iOS Zip
         if: |
