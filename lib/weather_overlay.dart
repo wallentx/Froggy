@@ -173,11 +173,45 @@ const List<WeatherOption> weatherOptions = [
 WeatherOverlay? overlayForWeather(
   String weather, {
   bool performanceMode = false,
+  bool isNight = false,
 }) {
-  final overlay = _weatherOptionForWeather(weather)?.overlay;
-  if (overlay == null || !performanceMode) return overlay;
+  if (performanceMode) {
+    return const WeatherOverlay(backgroundAsset: null, foregroundAsset: null);
+  }
 
-  return const WeatherOverlay(backgroundAsset: null, foregroundAsset: null);
+  final option = _weatherOptionForWeather(weather);
+  if (option == null) return null;
+
+  if (isNight) {
+    if (weather == 'Clear') {
+      return const WeatherOverlay(
+        backgroundAsset: '$weatherOverlayBasePath/clear_background_night.json',
+        foregroundAsset: null,
+      );
+    } else if (weather == 'Mostly Sunny') {
+      return const WeatherOverlay(
+        backgroundAsset: '$weatherOverlayBasePath/mostly_clear_background_night.json',
+        foregroundAsset: null,
+      );
+    } else if (weather == 'Cloudy') {
+      return const WeatherOverlay(
+        backgroundAsset: '$weatherOverlayBasePath/mostly_cloudy_background_night.json',
+        foregroundAsset: null,
+      );
+    } else if (weather == 'Scattered Showers') {
+      return const WeatherOverlay(
+        backgroundAsset: '$weatherOverlayBasePath/scattered_showers_background_night.json',
+        foregroundAsset: '$weatherOverlayBasePath/scattered_showers_foreground_night.json',
+      );
+    } else if (weather == 'Scattered Snow') {
+      return const WeatherOverlay(
+        backgroundAsset: '$weatherOverlayBasePath/scattered_snow_background_night.json',
+        foregroundAsset: '$weatherOverlayBasePath/scattered_snow_foreground_night.json',
+      );
+    }
+  }
+
+  return option.overlay;
 }
 
 String sceneWeatherForWeather(String weather) {

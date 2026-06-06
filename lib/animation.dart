@@ -9,6 +9,9 @@ class LoopingFlareController extends FlareController {
   String animationName;
   ActorAnimation? _animation;
   double _time = 0.0;
+  double _pauseTimeRemaining = 0.0;
+
+  double get pauseTimeRemaining => _pauseTimeRemaining;
 
   // Notifies listeners when the Flare file finishes loading and duration is known.
   final ValueNotifier<double?> durationNotifier = ValueNotifier<double?>(null);
@@ -75,6 +78,7 @@ class LoopingFlareController extends FlareController {
     _animation = _artboard?.getAnimation(name);
     durationNotifier.value = _animation?.duration;
     _time = 0.0;
+    _pauseTimeRemaining = 0.0;
   }
 
   bool queueBaseAnimation(String name, {ui.VoidCallback? onApplied}) {
@@ -114,6 +118,10 @@ class LoopingFlareController extends FlareController {
     return true;
   }
 
+  bool _shouldPauseBeforeRestart(String name) {
+    return name.contains('Sub-Action') || name != 'Hero-Action';
+  }
+
   @override
   bool advance(FlutterActorArtboard artboard, double elapsed) {
     // 1. Always advance and apply all environmental animations concurrently in the background
@@ -132,9 +140,35 @@ class LoopingFlareController extends FlareController {
         durationNotifier.value = _animation!.duration;
       }
       final duration = _animation!.duration;
-      final nextTime = _time + elapsed;
-      final completedLoop = duration > 0 && nextTime >= duration;
-      _time = duration > 0 ? nextTime % duration : 0.0;
+
+      bool completedLoop = false;
+      if (_queuedBaseAnimation != null || _queuedOneOffAnimationName != null) {
+        // Intercept/cancel pause immediately if an animation is queued
+        _pauseTimeRemaining = 0.0;
+        completedLoop = true;
+      }
+
+      if (_pauseTimeRemaining > 0.0) {
+        _pauseTimeRemaining -= elapsed;
+        if (_pauseTimeRemaining < 0.0) {
+          _pauseTimeRemaining = 0.0;
+        }
+        _time = 0.0; // Hold at the starting frame
+      } else if (!completedLoop) {
+        final nextTime = _time + elapsed;
+        if (duration > 0 && nextTime >= duration) {
+          completedLoop = true;
+          if (_shouldPauseBeforeRestart(animationName)) {
+            _pauseTimeRemaining = 4.0; // 4 seconds pause
+            _time = 0.0;
+          } else {
+            _time = nextTime % duration;
+          }
+        } else {
+          _time = duration > 0 ? nextTime : 0.0;
+        }
+      }
+
       _animation!.apply(_time, artboard, 1.0);
 
       if (completedLoop) {

@@ -122,4 +122,44 @@ void main() {
       );
     }
   });
+
+  test('maps app weather categories to night-specific tablet Lottie overlay assets', () {
+    const basePath = 'assets/animated_weather/tablet';
+
+    expect(
+      overlayForWeather('Clear', isNight: true),
+      const WeatherOverlay(
+        backgroundAsset: '$basePath/clear_background_night.json',
+        foregroundAsset: null,
+      ),
+    );
+    expect(
+      overlayForWeather('Mostly Sunny', isNight: true),
+      const WeatherOverlay(
+        backgroundAsset: '$basePath/mostly_clear_background_night.json',
+        foregroundAsset: null,
+      ),
+    );
+    expect(
+      overlayForWeather('Cloudy', isNight: true),
+      const WeatherOverlay(
+        backgroundAsset: '$basePath/mostly_cloudy_background_night.json',
+        foregroundAsset: null,
+      ),
+    );
+    expect(
+      overlayForWeather('Scattered Showers', isNight: true),
+      const WeatherOverlay(
+        backgroundAsset: '$basePath/scattered_showers_background_night.json',
+        foregroundAsset: '$basePath/scattered_showers_foreground_night.json',
+      ),
+    );
+    expect(
+      overlayForWeather('Scattered Snow', isNight: true),
+      const WeatherOverlay(
+        backgroundAsset: '$basePath/scattered_snow_background_night.json',
+        foregroundAsset: '$basePath/scattered_snow_foreground_night.json',
+      ),
+    );
+  });
 }

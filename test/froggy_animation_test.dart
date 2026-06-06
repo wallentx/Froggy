@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flare_flutter/flare.dart';
 import 'package:froggy/animation.dart';
 
 void main() {
@@ -133,4 +134,66 @@ void main() {
 
     expect(animation.currentAnimation, 'Sub-Action 01');
   });
+
+  test('LoopingFlareController pauses after loop completion for Sub-Actions', () {
+    final heroAnim = FakeActorAnimation('Hero-Action', 2.0);
+    final subAnim = FakeActorAnimation('Sub-Action 01', 3.0);
+    final artboard = FakeFlutterActorArtboard([heroAnim, subAnim]);
+
+    // 1. Hero-Action should loop continuously
+    final controllerHero = LoopingFlareController('Hero-Action');
+    controllerHero.initialize(artboard);
+    
+    // Advance less than duration
+    controllerHero.advance(artboard, 1.5);
+    expect(controllerHero.pauseTimeRemaining, 0.0);
+    
+    // Advance past duration -> loops immediately, no pause
+    controllerHero.advance(artboard, 1.0); // total 2.5s (past 2.0s duration)
+    expect(controllerHero.pauseTimeRemaining, 0.0);
+
+    // 2. Sub-Action 01 should pause at loop completion
+    final controllerSub = LoopingFlareController('Sub-Action 01');
+    controllerSub.initialize(artboard);
+
+    // Advance less than duration
+    controllerSub.advance(artboard, 2.0);
+    expect(controllerSub.pauseTimeRemaining, 0.0);
+
+    // Advance past duration -> triggers pause
+    controllerSub.advance(artboard, 1.5); // total 3.5s (past 3.0s duration)
+    expect(controllerSub.pauseTimeRemaining, 4.0);
+
+    // During pause, advancing time decreases pauseTimeRemaining
+    controllerSub.advance(artboard, 1.0);
+    expect(controllerSub.pauseTimeRemaining, 3.0);
+
+    // Once pause completes, it starts looping again
+    controllerSub.advance(artboard, 3.5); // completes the 3.0s pause and advances 0.5s into the loop
+    expect(controllerSub.pauseTimeRemaining, 0.0);
+  });
+}
+
+class FakeActorAnimation extends ActorAnimation {
+  FakeActorAnimation(String name, double duration) : super(name, 30, duration, true);
+
+  @override
+  void apply(double time, ActorArtboard artboard, double mix) {}
+}
+
+class FakeFlutterActorArtboard extends FlutterActorArtboard {
+  final List<ActorAnimation> _anims;
+
+  FakeFlutterActorArtboard(this._anims) : super(FlutterActor());
+
+  @override
+  List<ActorAnimation> get animations => _anims;
+
+  @override
+  ActorAnimation? getAnimation(String name) {
+    for (final a in _anims) {
+      if (a.name == name) return a;
+    }
+    return null;
+  }
 }
